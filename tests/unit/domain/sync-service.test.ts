@@ -209,6 +209,7 @@ describe('SyncService', () => {
     expect(eventTypes).toEqual([
       'SyncStarted',
       'EntriesParsed',
+      'EntryProcessing',
       'CalendarEventCreated',
       'SyncCompleted',
     ]);
@@ -226,12 +227,19 @@ describe('SyncService', () => {
       expect(entriesParsed.syncableCount).toBe(1);
     }
 
-    const created = eventBus.events[2];
+    const processing = eventBus.events[2];
+    if (processing.type === 'EntryProcessing') {
+      expect(processing.date).toBe('2025-03-15');
+      expect(processing.index).toBe(1);
+      expect(processing.total).toBe(1);
+    }
+
+    const created = eventBus.events[3];
     if (created.type === 'CalendarEventCreated') {
       expect(created.date).toBe('2025-03-15');
     }
 
-    const completed = eventBus.events[3];
+    const completed = eventBus.events[4];
     if (completed.type === 'SyncCompleted') {
       expect(completed.entriesSynced).toBe(1);
       expect(completed.entriesSkipped).toBe(0);
@@ -357,7 +365,7 @@ describe('SyncService', () => {
     }
   });
 
-  it('publishes CalendarEventAlreadyExists for already-synced dates', async () => {
+  it('publishes EntrySkipped for already-synced dates', async () => {
     const entries = [makeEntry({ date: '2025-03-15' })];
     const timeOffSource = createMockTimeOffSource(entries);
     const calendarTarget = createMockCalendarTarget();
@@ -374,7 +382,112 @@ describe('SyncService', () => {
     await service.sync();
 
     const eventTypes = eventBus.events.map((e) => e.type);
-    expect(eventTypes).toContain('CalendarEventAlreadyExists');
+    expect(eventTypes).toContain('EntryProcessing');
+    expect(eventTypes).toContain('EntrySkipped');
+
+    const skippedEvent = eventBus.events.find((e) => e.type === 'EntrySkipped');
+    expect(skippedEvent).toBeDefined();
+    if (skippedEvent?.type === 'EntrySkipped') {
+      expect(skippedEvent.date).toBe('2025-03-15');
+      expect(skippedEvent.reason).toContain('already synced');
+    }
+  });
+
+  it('publishes EntryProcessing with correct index and total', async () => {
+    const entries = [
+      makeEntry({ date: '2025-03-15' }),
+      makeEntry({ date: '2025-03-16' }),
+      makeEntry({ date: '2025-03-17' }),
+    ];
+    const timeOffSource = createMockTimeOffSource(entries);
+    const calendarTarget = createMockCalendarTarget();
+    const syncStateStore = createMockSyncStateStore();
+
+    const service = createSyncService({
+      timeOffSource,
+      calendarTarget,
+      syncStateStore,
+      logger,
+      eventBus,
+    });
+
+    await service.sync();
+
+    const processingEvents = eventBus.events.filter((e) => e.type === 'EntryProcessing');
+    expect(processingEvents).toHaveLength(3);
+
+    if (processingEvents[0].type === 'EntryProcessing') {
+      expect(processingEvents[0].index).toBe(1);
+      expect(processingEvents[0].total).toBe(3);
+      expect(processingEvents[0].date).toBe('2025-03-15');
+      expect(processingEvents[0].entryType).toBe('Paid Time Off (PTO)');
+    }
+
+    if (processingEvents[2].type === 'EntryProcessing') {
+      expect(processingEvents[2].index).toBe(3);
+      expect(processingEvents[2].total).toBe(3);
+    }
+  });
+
+  it('publishes EntrySkipped when event exists in calendar', async () => {
+    const entries = [makeEntry({ date: '2025-03-15' })];
+    const timeOffSource = createMockTimeOffSource(entries);
+    const calendarTarget = createMockCalendarTarget({
+      eventExists: vi.fn(async () => true),
+    });
+    const syncStateStore = createMockSyncStateStore();
+
+    const service = createSyncService({
+      timeOffSource,
+      calendarTarget,
+      syncStateStore,
+      logger,
+      eventBus,
+    });
+
+    await service.sync();
+
+    const skippedEvents = eventBus.events.filter((e) => e.type === 'EntrySkipped');
+    expect(skippedEvents).toHaveLength(1);
+
+    if (skippedEvents[0].type === 'EntrySkipped') {
+      expect(skippedEvents[0].date).toBe('2025-03-15');
+      expect(skippedEvents[0].reason).toContain('already exists in calendar');
+    }
+  });
+
+  it('publishes EntryFailed when entry processing throws', async () => {
+    const entries = [makeEntry({ date: '2025-03-15' }), makeEntry({ date: '2025-03-16' })];
+    const timeOffSource = createMockTimeOffSource(entries);
+    const calendarTarget = createMockCalendarTarget({
+      createEvent: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('API rate limit'))
+        .mockResolvedValueOnce('event-id-456'),
+    });
+    const syncStateStore = createMockSyncStateStore();
+
+    const service = createSyncService({
+      timeOffSource,
+      calendarTarget,
+      syncStateStore,
+      logger,
+      eventBus,
+    });
+
+    await service.sync();
+
+    const failedEvents = eventBus.events.filter((e) => e.type === 'EntryFailed');
+    expect(failedEvents).toHaveLength(1);
+
+    if (failedEvents[0].type === 'EntryFailed') {
+      expect(failedEvents[0].date).toBe('2025-03-15');
+      expect(failedEvents[0].error).toBe('API rate limit');
+    }
+
+    // Second entry should still succeed
+    const createdEvents = eventBus.events.filter((e) => e.type === 'CalendarEventCreated');
+    expect(createdEvents).toHaveLength(1);
   });
 
   it('handles empty entries list', async () => {

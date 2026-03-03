@@ -210,6 +210,15 @@ async function runSync() {
         case 'EntriesParsed':
           appendLog(`Found ${event.count} entries (${event.syncableCount} syncable)`);
           break;
+        case 'EntryProcessing':
+          appendLog(`Processing ${event.index}/${event.total}: ${event.date} (${event.entryType})`);
+          break;
+        case 'EntrySkipped':
+          appendLog(`Skipped: ${event.date} - ${event.reason}`);
+          break;
+        case 'EntryFailed':
+          appendLog(`Error: ${event.date} - ${event.error}`, 'error');
+          break;
         case 'CalendarEventCreated':
           appendLog(`Created: ${event.summary} (${event.date})`, 'success');
           break;
@@ -243,6 +252,13 @@ async function runSync() {
     const result = await storage.getLastSyncResult();
     syncState.status = 'completed';
     syncState.lastResult = result;
+
+    if (result && result.errors.length > 0) {
+      appendLog(`${result.errors.length} entries failed:`, 'error');
+      for (const err of result.errors) {
+        appendLog(`  ${err.entryDate}: ${err.message}`, 'error');
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     syncState.status = 'failed';

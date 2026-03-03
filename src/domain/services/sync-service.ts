@@ -48,9 +48,30 @@ export function createSyncService(deps: SyncServiceDeps) {
         let skipped = 0;
         const errors: SyncError[] = [];
 
-        for (const entry of syncable) {
+        for (let i = 0; i < syncable.length; i++) {
+          const entry = syncable[i];
+
+          eventBus.publish(
+            createDomainEvent('EntryProcessing', {
+              date: entry.date,
+              entryType: entry.type,
+              index: i + 1,
+              total: syncable.length,
+            }),
+          );
+          logger.debug('Processing entry', {
+            date: entry.date,
+            index: i + 1,
+            total: syncable.length,
+          });
+
           if (syncedDates.has(entry.date)) {
-            eventBus.publish(createDomainEvent('CalendarEventAlreadyExists', { date: entry.date }));
+            eventBus.publish(
+              createDomainEvent('EntrySkipped', {
+                date: entry.date,
+                reason: 'already synced (from local state)',
+              }),
+            );
             logger.debug('Event already synced, skipping', { date: entry.date });
             skipped++;
             continue;
@@ -62,7 +83,10 @@ export function createSyncService(deps: SyncServiceDeps) {
 
             if (exists) {
               eventBus.publish(
-                createDomainEvent('CalendarEventAlreadyExists', { date: entry.date }),
+                createDomainEvent('EntrySkipped', {
+                  date: entry.date,
+                  reason: 'already exists in calendar',
+                }),
               );
               await syncStateStore.markSynced(entry.date, 'existing');
               skipped++;
@@ -86,6 +110,12 @@ export function createSyncService(deps: SyncServiceDeps) {
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             errors.push({ entryDate: entry.date, message });
+            eventBus.publish(
+              createDomainEvent('EntryFailed', {
+                date: entry.date,
+                error: message,
+              }),
+            );
             logger.error('Failed to sync entry', { date: entry.date, error: message });
           }
         }

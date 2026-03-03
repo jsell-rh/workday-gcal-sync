@@ -1,7 +1,9 @@
 export type DomainEvent =
   | SyncStarted
   | EntriesParsed
+  | EntryProcessing
   | EntrySkipped
+  | EntryFailed
   | CalendarEventCreated
   | CalendarEventAlreadyExists
   | SyncCompleted
@@ -20,11 +22,27 @@ export interface EntriesParsed {
   readonly syncableCount: number;
 }
 
+export interface EntryProcessing {
+  readonly type: 'EntryProcessing';
+  readonly timestamp: string;
+  readonly date: string;
+  readonly entryType: string;
+  readonly index: number;
+  readonly total: number;
+}
+
 export interface EntrySkipped {
   readonly type: 'EntrySkipped';
   readonly timestamp: string;
   readonly date: string;
   readonly reason: string;
+}
+
+export interface EntryFailed {
+  readonly type: 'EntryFailed';
+  readonly timestamp: string;
+  readonly date: string;
+  readonly error: string;
 }
 
 export interface CalendarEventCreated {

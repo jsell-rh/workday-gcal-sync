@@ -28,3 +28,6 @@ playwright-report/
 
 # Coverage
 coverage/
+
+# Extension private key
+.extension-key.pem
