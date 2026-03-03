@@ -6,7 +6,7 @@ describe('renderTitle', () => {
 
   it('renders the default template', () => {
     const result = renderTitle(DEFAULT_SETTINGS.titleTemplate, vars);
-    expect(result).toBe('PTO - Paid Time Off (PTO)');
+    expect(result).toBe('OOO - Paid Time Off (PTO)');
   });
 
   it('renders a simple template without variables', () => {
@@ -54,11 +54,12 @@ describe('renderTitle', () => {
 
 describe('DEFAULT_SETTINGS', () => {
   it('has expected default values', () => {
-    expect(DEFAULT_SETTINGS.eventVisibility).toBe('busy');
-    expect(DEFAULT_SETTINGS.titleTemplate).toBe('PTO - {type}');
+    expect(DEFAULT_SETTINGS.eventVisibility).toBe('outOfOffice');
+    expect(DEFAULT_SETTINGS.titleTemplate).toBe('OOO - {type}');
     expect(DEFAULT_SETTINGS.calendarIds).toEqual(['primary']);
-    expect(DEFAULT_SETTINGS.workdayAbsenceUrl).toContain('myworkday.com');
+    expect(DEFAULT_SETTINGS.workdayAbsenceUrl).toBe('');
     expect(DEFAULT_SETTINGS.autoSyncEnabled).toBe(false);
     expect(DEFAULT_SETTINGS.autoSyncIntervalMinutes).toBe(60);
+    expect(DEFAULT_SETTINGS.setupComplete).toBe(false);
   });
 });

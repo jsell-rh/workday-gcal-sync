@@ -9,9 +9,11 @@ describe('calendarEventFromTimeOff', () => {
       requestedHours: 8,
     });
 
-    expect(event.summary).toBe('PTO - Paid Time Off (PTO)');
+    expect(event.summary).toBe('OOO - Paid Time Off (PTO)');
     expect(event.description).toBe('Auto-synced from Workday. 8 hours.');
-    expect(event.isAllDay).toBe(true);
+    // Default visibility is now outOfOffice, so isAllDay defaults to false
+    expect(event.isAllDay).toBe(false);
+    expect(event.visibility).toBe('outOfOffice');
   });
 
   it('includes hours in summary for partial day (less than 8 hours)', () => {
@@ -21,7 +23,7 @@ describe('calendarEventFromTimeOff', () => {
       requestedHours: 4,
     });
 
-    expect(event.summary).toBe('PTO (4h) - Paid Time Off (PTO)');
+    expect(event.summary).toBe('OOO (4h) - Paid Time Off (PTO)');
     expect(event.description).toBe('Auto-synced from Workday. 4 hours.');
   });
 
@@ -65,7 +67,7 @@ describe('calendarEventFromTimeOff', () => {
       requestedHours: 8,
     });
 
-    expect(event.summary).toBe('PTO - Floating Holiday');
+    expect(event.summary).toBe('OOO - Floating Holiday');
     expect(event.description).toBe('Auto-synced from Workday. 8 hours.');
   });
 
@@ -76,7 +78,7 @@ describe('calendarEventFromTimeOff', () => {
       requestedHours: 4,
     });
 
-    expect(event.summary).toBe('PTO (4h) - Floating Holiday');
+    expect(event.summary).toBe('OOO (4h) - Floating Holiday');
   });
 
   it('treats more-than-8 hours as full day summary', () => {
@@ -86,7 +88,7 @@ describe('calendarEventFromTimeOff', () => {
       requestedHours: 10,
     });
 
-    expect(event.summary).toBe('PTO - Paid Time Off (PTO)');
+    expect(event.summary).toBe('OOO - Paid Time Off (PTO)');
   });
 
   it('sets isAllDay to false when eventVisibility is outOfOffice', () => {

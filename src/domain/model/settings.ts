@@ -7,15 +7,17 @@ export interface SyncSettings {
   readonly workdayAbsenceUrl: string;
   readonly autoSyncEnabled: boolean;
   readonly autoSyncIntervalMinutes: number; // 15, 30, 60, 120, 240
+  readonly setupComplete: boolean;
 }
 
 export const DEFAULT_SETTINGS: SyncSettings = {
-  eventVisibility: 'busy',
-  titleTemplate: 'PTO - {type}',
+  eventVisibility: 'outOfOffice',
+  titleTemplate: 'OOO - {type}',
   calendarIds: ['primary'],
-  workdayAbsenceUrl: 'https://wd5.myworkday.com/redhat/d/task/2997$276.htmld',
+  workdayAbsenceUrl: '',
   autoSyncEnabled: false,
   autoSyncIntervalMinutes: 60,
+  setupComplete: false,
 };
 
 /**

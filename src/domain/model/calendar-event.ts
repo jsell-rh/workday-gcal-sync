@@ -32,7 +32,7 @@ export function calendarEventFromTimeOff(
 ): CalendarEvent {
   const startDate = entry.date;
   const endDate = nextDay(startDate);
-  const { titleTemplate, eventVisibility = 'busy' } = options;
+  const { titleTemplate, eventVisibility = 'outOfOffice' } = options;
 
   let summary: string;
   if (titleTemplate) {
@@ -45,8 +45,8 @@ export function calendarEventFromTimeOff(
     // Legacy format
     summary =
       entry.requestedHours < 8
-        ? `PTO (${entry.requestedHours}h) - ${entry.type}`
-        : `PTO - ${entry.type}`;
+        ? `OOO (${entry.requestedHours}h) - ${entry.type}`
+        : `OOO - ${entry.type}`;
   }
 
   return {

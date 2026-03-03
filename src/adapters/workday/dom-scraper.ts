@@ -118,8 +118,7 @@ function parseRow(row: Element): TimeOffEntry | null {
 /**
  * Adapter: Scrapes time-off entries from the Workday "My Absence" page DOM.
  *
- * Target URL: https://wd5.myworkday.com/redhat/d/task/2997$276.htmld
- * Page title: "My Absence"
+ * Expects the user to be on their Workday "My Absence" page.
  *
  * @param doc - The Document to scrape (defaults to window.document in content script context)
  */
@@ -129,9 +128,7 @@ export function createWorkdayDomScraper(doc: Document): TimeOffSource {
       const table = doc.querySelector(SELECTORS.table);
       if (!table) {
         throw new Error(
-          'Workday absence table not found. ' +
-            'Ensure you are on the "My Absence" page ' +
-            '(https://wd5.myworkday.com/redhat/d/task/2997$276.htmld)',
+          'Workday absence table not found. ' + 'Ensure you are on your Workday "My Absence" page.',
         );
       }
 

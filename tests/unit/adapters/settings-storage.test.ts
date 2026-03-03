@@ -21,9 +21,10 @@ describe('SettingsStore', () => {
         eventVisibility: 'free',
         titleTemplate: '{type}',
         calendarIds: ['my-cal@group.calendar.google.com'],
-        workdayAbsenceUrl: 'https://wd5.myworkday.com/other/d/task/2997$276.htmld',
+        workdayAbsenceUrl: 'https://wd5.myworkday.com/acme/d/task/1234$567.htmld',
         autoSyncEnabled: true,
         autoSyncIntervalMinutes: 30,
+        setupComplete: true,
       };
 
       await browser.storage.local.set({
@@ -41,7 +42,7 @@ describe('SettingsStore', () => {
           eventVisibility: 'free',
           titleTemplate: '{type}',
           calendarId: 'legacy-cal@group.calendar.google.com',
-          workdayAbsenceUrl: 'https://wd5.myworkday.com/other/d/task/2997$276.htmld',
+          workdayAbsenceUrl: 'https://wd5.myworkday.com/acme/d/task/1234$567.htmld',
         },
       });
 
@@ -73,9 +74,10 @@ describe('SettingsStore', () => {
         eventVisibility: 'outOfOffice',
         titleTemplate: 'OOO ({hours}h)',
         calendarIds: ['work-cal'],
-        workdayAbsenceUrl: 'https://wd5.myworkday.com/other/d/task/2997$276.htmld',
+        workdayAbsenceUrl: 'https://wd5.myworkday.com/acme/d/task/1234$567.htmld',
         autoSyncEnabled: true,
         autoSyncIntervalMinutes: 120,
+        setupComplete: true,
       };
 
       await store.saveSettings(custom);
