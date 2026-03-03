@@ -1,5 +1,10 @@
 # PTO Sync
 
+> [!Warning]
+>
+> The development of this extension was heavily aided
+> by Claude Code. Use at your own risk.
+
 Browser extension that syncs time-off entries from Workday to Google Calendar.
 
 <p align="center">
