@@ -5,27 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PTO Sync</title>
     <link rel="stylesheet" href="../../ui/shared.css" />
-    <style>
-      .log-area {
-        max-height: 150px;
-      }
-    </style>
   </head>
   <body>
+    <!-- ===== Header ===== -->
     <div class="header">
-      <h1>PTO Sync</h1>
+      <div class="header-left">
+        <h1>PTO Sync</h1>
+        <p class="subtitle">Workday &rarr; Google Calendar</p>
+      </div>
       <button
         id="settings-toggle"
         class="settings-toggle"
         aria-expanded="false"
-        aria-controls="settings-panel"
         aria-label="Open settings"
         title="Settings"
       >
         &#9881;
       </button>
     </div>
-    <p class="subtitle">Workday &rarr; Google Calendar</p>
 
     <!-- Sidebar suggestion for popup users -->
     <div id="sidebar-hint" class="sidebar-hint">
@@ -39,189 +36,219 @@
       </button>
     </div>
 
-    <div id="settings-panel" class="settings-panel hidden" role="region" aria-label="Settings">
-      <h2>Settings</h2>
-
-      <div class="form-group">
-        <label for="visibility-select">Event Visibility</label>
-        <span class="form-hint">How PTO events appear on your calendar to others.</span>
-        <select id="visibility-select">
-          <option value="busy">Busy (default)</option>
-          <option value="free">Free</option>
-          <option value="outOfOffice">Out of Office</option>
-        </select>
+    <!-- ===== Settings overlay ===== -->
+    <div id="settings-overlay" class="settings-overlay hidden">
+      <div class="settings-overlay-header">
+        <button id="settings-back" class="settings-back" type="button" aria-label="Back">
+          &larr;
+        </button>
+        <h2>Settings</h2>
       </div>
 
-      <div class="form-group">
-        <label for="title-template">Event Title Template</label>
-        <span class="form-hint"
-          >Use <code>{type}</code>, <code>{hours}</code>, or <code>{status}</code> as
-          placeholders.</span
-        >
-        <input type="text" id="title-template" placeholder="PTO - {type}" value="PTO - {type}" />
-        <div id="title-template-error" class="validation-error">
-          Title template cannot be empty.
+      <div class="settings-body">
+        <div class="settings-section">
+          <div class="settings-section-header">Calendar</div>
+          <div class="form-group">
+            <label for="visibility-select">Event visibility</label>
+            <span class="form-hint">How your PTO appears to others.</span>
+            <select id="visibility-select">
+              <option value="busy">Busy</option>
+              <option value="free">Free</option>
+              <option value="outOfOffice">Out of Office (default)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="title-template">Event title</label>
+            <span class="form-hint"
+              >Use <code>{type}</code>, <code>{hours}</code>, or <code>{status}</code> as
+              placeholders.</span
+            >
+            <input
+              type="text"
+              id="title-template"
+              placeholder="OOO - {type}"
+              value="OOO - {type}"
+            />
+            <div id="title-template-error" class="validation-error">
+              Title template cannot be empty.
+            </div>
+            <div class="title-preview">
+              Preview: <span id="title-preview">OOO - Paid Time Off (PTO)</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Target calendars</label>
+            <span class="form-hint">Which calendar(s) to add PTO events to.</span>
+            <div id="calendar-checkboxes" class="calendar-checkboxes-container"></div>
+          </div>
         </div>
-        <div class="title-preview">
-          Preview: <span id="title-preview">PTO - Paid Time Off (PTO)</span>
+
+        <div class="settings-section">
+          <div class="settings-section-header">Workday</div>
+          <div class="form-group">
+            <label for="workday-url">Absence page URL</label>
+            <span class="form-hint">Your Workday &ldquo;My Absence&rdquo; page.</span>
+            <input
+              type="url"
+              id="workday-url"
+              placeholder="https://wd5.myworkday.com/yourcompany/..."
+              value=""
+            />
+            <div id="workday-url-error" class="validation-error">
+              Please enter a valid Workday URL.
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-header">Background sync</div>
+          <div class="form-group">
+            <label class="auto-sync-label">
+              <input type="checkbox" id="auto-sync-checkbox" />
+              <span>Sync automatically</span>
+            </label>
+            <span class="form-hint"
+              >Periodically check Workday and sync new PTO entries to your calendar.</span
+            >
+            <div id="auto-sync-interval-group" class="auto-sync-interval hidden">
+              <label for="auto-sync-interval">Check every:</label>
+              <select id="auto-sync-interval">
+                <option value="15">15 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="60" selected>1 hour</option>
+                <option value="120">2 hours</option>
+                <option value="240">4 hours</option>
+              </select>
+            </div>
+            <div class="form-hint auto-sync-help">
+              Runs while your browser is open &mdash; no need to keep this panel open. If
+              you&rsquo;re signed out of Workday, sync will pause until you sign in again.
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button id="save-settings" class="btn-primary">Save</button>
+          <div id="settings-status" class="settings-status" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="settings-danger-zone">
+          <button id="start-over-btn" class="link-button start-over-link" type="button">
+            Start over
+          </button>
+          <span class="form-hint">Clears all synced data and settings, and re-runs setup.</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="setup-wizard" class="setup-wizard-overlay hidden"></div>
+
+    <!-- ===== Main content ===== -->
+    <div id="main-content">
+      <!-- Welcome card (first-run) -->
+      <div id="welcome-card" class="welcome-card hidden">
+        <div class="welcome-title">Welcome! Let's sync your PTO.</div>
+        <p>
+          This extension reads your time-off entries from Workday and adds them to Google Calendar
+          automatically.
+        </p>
+        <p>Click <strong>Sync Now</strong> below to get started.</p>
+      </div>
+
+      <!-- Status summary -->
+      <div id="status-summary" class="status-summary hidden">
+        <div id="status-icon" class="status-icon status-icon-success">&#10003;</div>
+        <div class="status-text">
+          <div id="status-headline" class="status-headline">Never synced</div>
+          <div id="status-detail" class="status-detail"></div>
         </div>
       </div>
 
-      <div class="form-group">
-        <label>Target Calendars</label>
-        <span class="form-hint">Which Google Calendar(s) to add PTO events to.</span>
-        <div id="calendar-checkboxes"></div>
+      <!-- Error banner -->
+      <div id="error-banner" class="error-banner hidden" role="alert">
+        <div class="error-banner-title">Something went wrong</div>
+        <div id="error-banner-message" class="error-banner-message"></div>
       </div>
 
-      <div class="form-group">
-        <label for="workday-url">Workday Absence URL</label>
-        <span class="form-hint"
-          >The URL of your Workday &ldquo;My Absence&rdquo; page. Change this only if your
-          organization uses a different Workday instance.</span
-        >
-        <input
-          type="url"
-          id="workday-url"
-          placeholder="https://wd5.myworkday.com/..."
-          value="https://wd5.myworkday.com/redhat/d/task/2997$276.htmld"
-        />
-        <div id="workday-url-error" class="validation-error">Please enter a valid Workday URL.</div>
-      </div>
-
-      <div class="form-group">
-        <label class="auto-sync-label">
-          <input type="checkbox" id="auto-sync-checkbox" />
-          <span>Automatically sync in the background</span>
-        </label>
-        <span class="form-hint"
-          >When enabled, the extension will periodically check Workday and sync new PTO entries to
-          your calendar.</span
-        >
-        <div id="auto-sync-interval-group" class="auto-sync-interval hidden">
-          <label for="auto-sync-interval">Check every:</label>
-          <select id="auto-sync-interval">
-            <option value="15">15 minutes</option>
-            <option value="30">30 minutes</option>
-            <option value="60" selected>1 hour</option>
-            <option value="120">2 hours</option>
-            <option value="240">4 hours</option>
-          </select>
+      <!-- Progress area (during sync) -->
+      <div id="progress-area" class="progress-area hidden" role="status" aria-live="polite">
+        <div class="progress-status-text" id="progress-phase">Syncing your PTO...</div>
+        <div class="progress-bar-container">
+          <div id="progress-bar" class="progress-bar"></div>
         </div>
       </div>
 
-      <button id="save-settings" class="secondary">Save Settings</button>
-      <div id="settings-status" class="settings-status" role="status" aria-live="polite"></div>
-    </div>
-
-    <div id="welcome-card" class="welcome-card hidden">
-      <p>
-        <strong>Welcome to PTO Sync!</strong> This extension reads your PTO entries from Workday and
-        creates events on your Google Calendar.
-      </p>
-      <p>Click <strong>Check Workday</strong> to preview your PTO entries before syncing.</p>
-    </div>
-
-    <div id="last-sync" class="status-card">
-      <div class="status-label">Last Sync</div>
-      <div id="last-sync-value" class="status-value pending">Never synced</div>
-    </div>
-
-    <div id="sync-stats" class="sync-stats hidden" role="status" aria-label="Sync results">
-      <div class="stat">
-        <div id="stat-found" class="stat-number">0</div>
-        <div class="stat-label">Entries</div>
-      </div>
-      <div class="stat">
-        <div id="stat-synced" class="stat-number">0</div>
-        <div class="stat-label">New</div>
-      </div>
-      <div class="stat">
-        <div id="stat-skipped" class="stat-number">0</div>
-        <div class="stat-label">Existing</div>
-      </div>
-      <div id="stat-errors-container" class="stat hidden">
-        <div id="stat-errors" class="stat-number error-count">0</div>
-        <div class="stat-label">Errors</div>
-      </div>
-    </div>
-
-    <div id="progress-area" class="progress-area hidden" role="status" aria-live="polite">
-      <div class="progress-bar-container">
-        <div id="progress-bar" class="progress-bar"></div>
-      </div>
-      <div id="progress-text" class="progress-text">Starting sync...</div>
-    </div>
-
-    <div id="error-banner" class="error-banner hidden" role="alert">
-      <div class="error-banner-title">Something went wrong</div>
-      <div id="error-banner-message" class="error-banner-message"></div>
-    </div>
-
-    <div id="success-banner" class="success-banner hidden" role="status">
-      <span class="success-checkmark" aria-hidden="true">&#10003;</span>
-      <span id="success-message" class="success-message"></span>
-    </div>
-
-    <!-- Preview area -->
-    <div id="preview-area" class="preview-area hidden">
-      <div id="preview-summary" class="preview-summary"></div>
-      <div class="preview-scroll">
-        <div id="preview-table" class="preview-table"></div>
-      </div>
-    </div>
-
-    <!-- Primary action: Check Workday -->
-    <button id="check-btn" class="primary" aria-label="Check Workday for PTO entries">
-      <span id="check-btn-text" class="btn-text">Check Workday</span>
-    </button>
-
-    <!-- Secondary action: Sync to Calendar (hidden until preview) -->
-    <button
-      id="sync-btn"
-      class="primary sync-confirm-btn hidden"
-      aria-label="Sync PTO entries to Google Calendar"
-    >
-      <span id="sync-btn-text" class="btn-text">Sync to Calendar</span>
-    </button>
-
-    <!-- Synced Events section -->
-    <div class="synced-events-section">
-      <button
-        id="synced-events-toggle"
-        class="log-toggle"
-        aria-expanded="false"
-        aria-controls="synced-events-panel"
-        type="button"
-      >
-        <span class="log-toggle-arrow">&#9654;</span>
-        Synced Events
+      <!-- Primary action: Sync Now -->
+      <button id="sync-now-btn" class="btn-primary" aria-label="Sync PTO to Google Calendar">
+        <span id="sync-now-btn-text" class="btn-text">Sync Now</span>
       </button>
-      <div id="synced-events-panel" class="synced-events-panel hidden">
-        <div id="synced-events-list" class="synced-events-list"></div>
-        <button id="unsync-all-btn" class="unsync-all-btn hidden" type="button">
-          Remove all synced events
+
+      <!-- Preview link (secondary action) -->
+      <div class="preview-link-container">
+        <button id="preview-link" class="link-button" type="button">Preview changes first</button>
+      </div>
+
+      <!-- Completion summary (shown after sync) -->
+      <div id="completion-card" class="completion-card hidden">
+        <div class="completion-icon">&#10003;</div>
+        <div class="completion-title">All done!</div>
+        <div id="completion-message" class="completion-message"></div>
+        <button id="completion-details-toggle" class="link-button" type="button">
+          View details
+        </button>
+        <div id="completion-details" class="completion-details hidden">
+          <div id="completion-details-content" class="preview-scroll"></div>
+        </div>
+      </div>
+
+      <!-- Preview area (power-user flow) -->
+      <div id="preview-area" class="preview-view hidden">
+        <div class="preview-view-header">
+          <button id="preview-back" class="settings-back" type="button" aria-label="Back">
+            &larr; Back
+          </button>
+          <span class="preview-view-title">Preview</span>
+        </div>
+        <div id="preview-summary" class="preview-summary"></div>
+        <div class="preview-scroll">
+          <div id="preview-table" class="preview-table"></div>
+        </div>
+        <button id="preview-apply-btn" class="btn-primary preview-apply-btn hidden">
+          <span id="preview-apply-btn-text" class="btn-text">Add events to calendar</span>
         </button>
       </div>
-    </div>
 
-    <div id="log-wrapper" class="hidden">
-      <button
-        id="log-toggle"
-        class="log-toggle"
-        aria-expanded="false"
-        aria-controls="log-area"
-        type="button"
-      >
-        <span id="log-toggle-arrow" class="log-toggle-arrow">&#9654;</span>
-        Show details
-      </button>
-      <div
-        id="log-area"
-        class="log-area hidden"
-        role="log"
-        aria-live="polite"
-        aria-label="Sync log"
-      ></div>
+      <!-- Recent activity -->
+      <div id="activity-section" class="activity-section hidden">
+        <div class="section-divider">Recent activity</div>
+        <div id="activity-list" class="activity-list"></div>
+      </div>
+
+      <!-- Synced Events (collapsible) -->
+      <div id="synced-section" class="synced-section hidden">
+        <button
+          id="synced-events-toggle"
+          class="collapsible-toggle"
+          aria-expanded="false"
+          type="button"
+        >
+          <span class="collapsible-arrow">&#9654;</span>
+          <span id="synced-events-label">Manage synced events</span>
+        </button>
+        <div id="synced-events-panel" class="synced-events-panel hidden">
+          <div id="synced-events-list" class="synced-events-list"></div>
+          <button id="unsync-all-btn" class="unsync-all-btn hidden" type="button">
+            Remove all synced events
+          </button>
+        </div>
+      </div>
+
+      <!-- Auto-sync status footer -->
+      <div id="auto-sync-footer" class="auto-sync-footer">
+        <span id="auto-sync-status-text">Auto-sync: Off</span>
+      </div>
     </div>
 
     <script type="module" src="./main.ts"></script>

@@ -4,7 +4,8 @@ import type { CalendarListEntry } from '../adapters/google-calendar/api-client';
 
 export interface SettingsUIElements {
   settingsToggle: HTMLButtonElement;
-  settingsPanel: HTMLElement;
+  settingsOverlay: HTMLElement;
+  settingsBack: HTMLButtonElement;
   visibilitySelect: HTMLSelectElement;
   titleTemplateInput: HTMLInputElement;
   titlePreview: HTMLElement;
@@ -20,7 +21,8 @@ export interface SettingsUIElements {
 export function initSettingsUI(elements: SettingsUIElements) {
   const {
     settingsToggle,
-    settingsPanel,
+    settingsOverlay,
+    settingsBack,
     visibilitySelect,
     titleTemplateInput,
     titlePreview,
@@ -36,19 +38,36 @@ export function initSettingsUI(elements: SettingsUIElements) {
   let isOpen = false;
   let calendarsLoaded = false;
 
-  // --- Toggle settings panel ---
-  settingsToggle.addEventListener('click', () => {
-    isOpen = !isOpen;
-    settingsPanel.classList.toggle('hidden', !isOpen);
-    settingsToggle.setAttribute('aria-expanded', String(isOpen));
-    settingsToggle.setAttribute('aria-label', isOpen ? 'Close settings' : 'Open settings');
-
-    if (isOpen) {
-      loadSettings();
-      if (!calendarsLoaded) {
-        loadCalendars();
-      }
+  function openSettings() {
+    isOpen = true;
+    settingsOverlay.classList.remove('hidden');
+    settingsToggle.setAttribute('aria-expanded', 'true');
+    settingsToggle.setAttribute('aria-label', 'Close settings');
+    loadSettings();
+    if (!calendarsLoaded) {
+      loadCalendars();
     }
+  }
+
+  function closeSettings() {
+    isOpen = false;
+    settingsOverlay.classList.add('hidden');
+    settingsToggle.setAttribute('aria-expanded', 'false');
+    settingsToggle.setAttribute('aria-label', 'Open settings');
+  }
+
+  // --- Toggle settings overlay ---
+  settingsToggle.addEventListener('click', () => {
+    if (isOpen) {
+      closeSettings();
+    } else {
+      openSettings();
+    }
+  });
+
+  // --- Back button ---
+  settingsBack.addEventListener('click', () => {
+    closeSettings();
   });
 
   // --- Validation ---
@@ -62,7 +81,6 @@ export function initSettingsUI(elements: SettingsUIElements) {
   function validateWorkdayUrl(): boolean {
     const value = workdayUrlInput.value.trim();
     if (value.length === 0) {
-      // Empty is okay — we fall back to default
       workdayUrlInput.classList.remove('invalid');
       return true;
     }
@@ -92,7 +110,6 @@ export function initSettingsUI(elements: SettingsUIElements) {
 
   titleTemplateInput.addEventListener('input', () => {
     updateTitlePreview();
-    // Clear validation error while typing
     if (titleTemplateInput.value.trim().length > 0) {
       titleTemplateInput.classList.remove('invalid');
     }
@@ -113,7 +130,6 @@ export function initSettingsUI(elements: SettingsUIElements) {
         autoSyncIntervalSelect.value = String(settings.autoSyncIntervalMinutes);
         autoSyncIntervalGroup.classList.toggle('hidden', !settings.autoSyncEnabled);
 
-        // Check the stored calendar selections if calendars are loaded
         if (calendarsLoaded) {
           applyCalendarSelections(settings.calendarIds);
         }
@@ -156,7 +172,6 @@ export function initSettingsUI(elements: SettingsUIElements) {
       if (response.success && response.calendars) {
         calendarCheckboxes.innerHTML = '';
 
-        // Add "Primary" checkbox first
         let primaryLabel = 'Primary';
         const primaryCal = response.calendars.find((c) => c.primary);
         if (primaryCal) {
@@ -171,7 +186,6 @@ export function initSettingsUI(elements: SettingsUIElements) {
 
         calendarsLoaded = true;
 
-        // Re-apply the stored calendar selections
         const settingsResponse: { success: boolean; settings?: SyncSettings } =
           await browser.runtime.sendMessage({ type: 'GET_SETTINGS' });
         if (settingsResponse.success && settingsResponse.settings) {
@@ -201,12 +215,7 @@ export function initSettingsUI(elements: SettingsUIElements) {
 
   function appendCalendarCheckbox(value: string, label: string, checked: boolean) {
     const wrapper = document.createElement('label');
-    wrapper.style.display = 'flex';
-    wrapper.style.alignItems = 'center';
-    wrapper.style.gap = '6px';
-    wrapper.style.marginBottom = '4px';
-    wrapper.style.fontSize = '13px';
-    wrapper.style.cursor = 'pointer';
+    wrapper.className = 'calendar-checkbox-label';
 
     const cb = document.createElement('input');
     cb.type = 'checkbox';
@@ -223,7 +232,6 @@ export function initSettingsUI(elements: SettingsUIElements) {
 
   // --- Save settings ---
   saveBtn.addEventListener('click', async () => {
-    // Validate before saving
     const titleValid = validateTitleTemplate();
     const urlValid = validateWorkdayUrl();
     if (!titleValid || !urlValid) {
@@ -240,6 +248,7 @@ export function initSettingsUI(elements: SettingsUIElements) {
       autoSyncEnabled: autoSyncCheckbox.checked,
       autoSyncIntervalMinutes:
         Number(autoSyncIntervalSelect.value) || DEFAULT_SETTINGS.autoSyncIntervalMinutes,
+      setupComplete: true,
     };
 
     saveBtn.disabled = true;
@@ -263,7 +272,7 @@ export function initSettingsUI(elements: SettingsUIElements) {
       settingsStatus.className = 'settings-status error';
     } finally {
       saveBtn.disabled = false;
-      saveBtn.textContent = 'Save Settings';
+      saveBtn.textContent = 'Save';
 
       setTimeout(() => {
         settingsStatus.textContent = '';
@@ -271,4 +280,27 @@ export function initSettingsUI(elements: SettingsUIElements) {
       }, 3000);
     }
   });
+
+  // --- Start over ---
+  const startOverBtn = document.getElementById('start-over-btn') as HTMLButtonElement;
+  if (startOverBtn) {
+    startOverBtn.addEventListener('click', async () => {
+      const confirmed = confirm(
+        "Start over?\n\nThis will clear all synced events, settings, and activity history. You'll go through setup again.\n\nCalendar events that were already created will not be deleted.",
+      );
+      if (!confirmed) return;
+
+      startOverBtn.disabled = true;
+      startOverBtn.textContent = 'Resetting...';
+
+      try {
+        await browser.runtime.sendMessage({ type: 'RESET_ALL' });
+        // Reload the page to trigger wizard
+        window.location.reload();
+      } catch {
+        startOverBtn.disabled = false;
+        startOverBtn.textContent = 'Start over';
+      }
+    });
+  }
 }

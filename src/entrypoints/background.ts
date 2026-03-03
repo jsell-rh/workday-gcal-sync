@@ -29,6 +29,16 @@ interface SyncProgress {
   total: number;
 }
 
+/** Human-readable phase for UI display during sync */
+type SyncPhase =
+  | 'connecting'
+  | 'reading-pto'
+  | 'awaiting-sso'
+  | 'checking-calendar'
+  | 'adding-events'
+  | 'done'
+  | 'error';
+
 interface SyncState {
   status: 'idle' | 'previewing' | 'syncing' | 'awaiting-sso' | 'completed' | 'failed';
   log: LogEntry[];
@@ -36,6 +46,8 @@ interface SyncState {
   error: string | null;
   progress: SyncProgress | null;
   preview: SyncPreview | null;
+  phase: SyncPhase | null;
+  phaseMessage: string | null;
 }
 
 let syncState: SyncState = {
@@ -45,6 +57,8 @@ let syncState: SyncState = {
   error: null,
   progress: null,
   preview: null,
+  phase: null,
+  phaseMessage: null,
 };
 
 function appendLog(message: string, level: LogEntry['level'] = 'info') {
@@ -55,10 +69,75 @@ function appendLog(message: string, level: LogEntry['level'] = 'info') {
   });
 }
 
+function setPhase(phase: SyncPhase, message: string) {
+  syncState.phase = phase;
+  syncState.phaseMessage = message;
+}
+
 function humanizeSkipReason(reason: string): string {
   if (/already synced.*local state/i.test(reason)) return 'already on calendar';
   if (/already exists in calendar/i.test(reason)) return 'already on calendar';
   return reason;
+}
+
+// --- Activity history ---
+
+interface ActivityEntry {
+  date: string; // ISO datetime
+  summary: string;
+  eventsAdded: number;
+  eventsSkipped: number;
+  errors: number;
+}
+
+const ACTIVITY_STORAGE_KEY = 'pto-sync:activity-history';
+const MAX_ACTIVITY_ENTRIES = 10;
+
+async function saveActivityEntry(result: SyncResult): Promise<void> {
+  try {
+    const stored = await browser.storage.local.get(ACTIVITY_STORAGE_KEY);
+    const history: ActivityEntry[] = stored[ACTIVITY_STORAGE_KEY] ?? [];
+
+    // Build summary
+    const parts: string[] = [];
+    if (result.entriesSynced > 0) {
+      parts.push(`${result.entriesSynced} event${result.entriesSynced === 1 ? '' : 's'} added`);
+    }
+    if (result.entriesResynced > 0) {
+      parts.push(
+        `${result.entriesResynced} event${result.entriesResynced === 1 ? '' : 's'} re-added`,
+      );
+    }
+    if (result.errors.length > 0) {
+      parts.push(`${result.errors.length} error${result.errors.length === 1 ? '' : 's'}`);
+    }
+    if (parts.length === 0) {
+      parts.push('Everything up to date');
+    }
+
+    history.unshift({
+      date: result.syncedAt,
+      summary: parts.join(', '),
+      eventsAdded: result.entriesSynced + (result.entriesResynced ?? 0),
+      eventsSkipped: result.entriesSkipped,
+      errors: result.errors.length,
+    });
+
+    // Keep only the last N entries
+    const trimmed = history.slice(0, MAX_ACTIVITY_ENTRIES);
+    await browser.storage.local.set({ [ACTIVITY_STORAGE_KEY]: trimmed });
+  } catch {
+    // Non-critical: don't let activity storage break sync
+  }
+}
+
+async function getActivityHistory(): Promise<ActivityEntry[]> {
+  try {
+    const stored = await browser.storage.local.get(ACTIVITY_STORAGE_KEY);
+    return stored[ACTIVITY_STORAGE_KEY] ?? [];
+  } catch {
+    return [];
+  }
 }
 
 // --- Tab helpers ---
@@ -149,104 +228,192 @@ async function waitForAbsencePage(
 function createAutoTimeOffSource(workdayAbsenceUrl: string): TimeOffSource {
   return {
     async getEntries(): Promise<TimeOffEntry[]> {
-      const existingTabs = await browser.tabs.query({
-        url: 'https://*.myworkday.com/*',
-      });
-
       let tabId: number | undefined;
       let createdTab = false;
 
-      if (existingTabs.length > 0) {
-        tabId = existingTabs[0].id;
-        appendLog('Found existing Workday tab');
+      try {
+        const existingTabs = await browser.tabs.query({
+          url: 'https://*.myworkday.com/*',
+        });
 
-        const tab = existingTabs[0];
-        if (tab.url && !tab.url.includes('2997$276')) {
-          appendLog('Navigating to My Absence page...');
-          await browser.tabs.update(tabId!, { url: workdayAbsenceUrl });
+        if (existingTabs.length > 0) {
+          tabId = existingTabs[0].id;
+          appendLog('Found existing Workday tab');
+
+          const tab = existingTabs[0];
+          if (tab.url && tab.url !== workdayAbsenceUrl) {
+            appendLog('Navigating to My Absence page...');
+            setPhase('connecting', 'Connecting to Workday...');
+            await browser.tabs.update(tabId!, { url: workdayAbsenceUrl });
+            await waitForTabLoad(tabId!);
+          }
+        } else {
+          appendLog('Opening Workday in background...');
+          setPhase('connecting', 'Connecting to Workday...');
+          const tab = await browser.tabs.create({
+            url: workdayAbsenceUrl,
+            active: false,
+          });
+          tabId = tab.id;
+          createdTab = true;
           await waitForTabLoad(tabId!);
         }
-      } else {
-        appendLog('Opening Workday in background...');
-        const tab = await browser.tabs.create({
-          url: workdayAbsenceUrl,
-          active: false,
-        });
-        tabId = tab.id;
-        createdTab = true;
-        await waitForTabLoad(tabId!);
-      }
 
-      if (tabId === undefined) {
-        throw new Error('Failed to create Workday tab');
-      }
-
-      appendLog('Waiting for absence page to load...');
-      const result = await waitForAbsencePage(tabId);
-
-      if (result === 'ready') {
-        // Good — proceed to scrape
-      } else if (result === 'needs-sso') {
-        syncState.status = 'awaiting-sso';
-        appendLog('Sign-in required. Opening Workday for you to log in...', 'info');
-        await browser.tabs.update(tabId, { active: true });
-
-        // Now wait for the user to complete SSO (long timeout)
-        const ssoResult = await waitForAbsencePage(tabId, {
-          timeoutMs: 120000,
-          redirectGraceMs: 120000, // Don't declare SSO needed again, we already know
-        });
-
-        if (ssoResult !== 'ready') {
-          throw new Error('Timed out waiting for Workday sign-in. Please try again.');
+        if (tabId === undefined) {
+          throw new Error('Failed to create Workday tab');
         }
 
-        appendLog('Sign-in complete!', 'success');
-        syncState.status = 'syncing';
+        appendLog('Waiting for absence page to load...');
+        const result = await waitForAbsencePage(tabId);
+
+        if (result === 'ready') {
+          // Good — proceed to scrape
+        } else if (result === 'needs-sso') {
+          syncState.status = 'awaiting-sso';
+          setPhase('awaiting-sso', 'Please sign in to Workday to continue');
+          appendLog('Sign-in required. Opening Workday for you to log in...', 'info');
+          await browser.tabs.update(tabId, { active: true });
+
+          // Now wait for the user to complete SSO (long timeout)
+          const ssoResult = await waitForAbsencePage(tabId, {
+            timeoutMs: 120000,
+            redirectGraceMs: 120000, // Don't declare SSO needed again, we already know
+          });
+
+          if (ssoResult !== 'ready') {
+            throw new Error('Timed out waiting for Workday sign-in. Please try again.');
+          }
+
+          appendLog('Sign-in complete!', 'success');
+          syncState.status = 'syncing';
+
+          if (createdTab) {
+            await browser.tabs.update(tabId, { active: false });
+          }
+        } else {
+          throw new Error('Workday took too long to load. Please try again.');
+        }
+
+        setPhase('reading-pto', 'Reading your PTO entries...');
+        appendLog('Reading PTO entries from Workday...');
+        const response = await browser.tabs.sendMessage(tabId, {
+          type: 'SCRAPE_PTO',
+        });
 
         if (createdTab) {
-          await browser.tabs.update(tabId, { active: false });
+          await browser.tabs.remove(tabId);
         }
-      } else {
-        throw new Error('Workday took too long to load. Please try again.');
+
+        if (!response || !response.success) {
+          throw new Error(response?.error ?? 'Could not read PTO data from Workday.');
+        }
+
+        return response.entries;
+      } catch (error) {
+        // Clean up tab on error
+        if (createdTab && tabId !== undefined) {
+          try {
+            await browser.tabs.remove(tabId);
+          } catch {
+            /* ignore */
+          }
+        }
+        throw error;
       }
-
-      appendLog('Reading PTO entries from Workday...');
-      const response = await browser.tabs.sendMessage(tabId, {
-        type: 'SCRAPE_PTO',
-      });
-
-      if (createdTab) {
-        await browser.tabs.remove(tabId);
-      }
-
-      if (!response || !response.success) {
-        throw new Error(response?.error ?? 'Could not read PTO data from Workday.');
-      }
-
-      return response.entries;
     },
   };
 }
 
 // --- Google OAuth ---
 
-function getAuthToken(): Promise<string> {
+/** Detect whether we're running in Chrome (has chrome.identity.getAuthToken) */
+function isChromeIdentityAvailable(): boolean {
+  return (
+    typeof chrome !== 'undefined' &&
+    typeof chrome.identity !== 'undefined' &&
+    typeof chrome.identity.getAuthToken === 'function'
+  );
+}
+
+/** Chrome path: use the built-in getAuthToken API */
+function getAuthTokenChrome(interactive: boolean): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (typeof chrome !== 'undefined' && chrome.identity) {
-      chrome.identity.getAuthToken({ interactive: true }, (token) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message ?? 'Auth failed'));
-        } else if (token) {
-          resolve(token);
-        } else {
-          reject(new Error('No auth token received'));
-        }
-      });
-    } else {
-      reject(new Error('Google OAuth not available. Chrome required for now.'));
-    }
+    chrome.identity.getAuthToken({ interactive }, (token) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message ?? 'Auth failed'));
+      } else if (token) {
+        closeOAuthTabs();
+        resolve(token);
+      } else {
+        reject(new Error('No auth token received'));
+      }
+    });
   });
+}
+
+/**
+ * Firefox path: use browser.identity.launchWebAuthFlow.
+ *
+ * Google OAuth2 is used with the same client_id. The redirect URL is
+ * provided by the browser via `browser.identity.getRedirectURL()`.
+ * The access token comes back in the URL hash fragment.
+ */
+async function getAuthTokenFirefox(interactive: boolean): Promise<string> {
+  const clientId = '5968968327-njl8ho7kcp1876frdljpspl72h8es7f2.apps.googleusercontent.com';
+  const redirectUrl = browser.identity.getRedirectURL();
+  const scopes = [
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/calendar.readonly',
+  ].join(' ');
+
+  const authUrl =
+    `https://accounts.google.com/o/oauth2/v2/auth` +
+    `?client_id=${encodeURIComponent(clientId)}` +
+    `&response_type=token` +
+    `&redirect_uri=${encodeURIComponent(redirectUrl)}` +
+    `&scope=${encodeURIComponent(scopes)}`;
+
+  const responseUrl = await browser.identity.launchWebAuthFlow({
+    url: authUrl,
+    interactive,
+  });
+
+  // Parse the access token from the redirect URL's hash fragment
+  const url = new URL(responseUrl);
+  const params = new URLSearchParams(url.hash.substring(1));
+  const token = params.get('access_token');
+  if (!token) {
+    throw new Error('No access token found in OAuth response');
+  }
+  return token;
+}
+
+function getAuthToken(): Promise<string> {
+  if (isChromeIdentityAvailable()) {
+    return getAuthTokenChrome(true);
+  }
+  return getAuthTokenFirefox(true);
+}
+
+/**
+ * Chrome sometimes leaves Google sign-in/consent tabs open after
+ * `getAuthToken` completes. Find and close them.
+ */
+function closeOAuthTabs() {
+  browser.tabs
+    .query({ url: ['https://accounts.google.com/*', 'https://accounts.google.com/o/oauth2/*'] })
+    .then((tabs) => {
+      for (const tab of tabs) {
+        if (tab.id !== undefined) {
+          browser.tabs.remove(tab.id).catch(() => {
+            // Tab may already be closed
+          });
+        }
+      }
+    })
+    .catch(() => {
+      // Non-critical — don't let cleanup break the auth flow
+    });
 }
 
 // --- Run preview ---
@@ -267,6 +434,8 @@ async function runPreview() {
     error: null,
     progress: null,
     preview: null,
+    phase: 'connecting',
+    phaseMessage: 'Connecting to Workday...',
   };
 
   appendLog('Checking Workday for PTO entries...');
@@ -303,10 +472,13 @@ async function runPreview() {
       settings,
     });
 
+    setPhase('checking-calendar', 'Checking your calendar...');
     appendLog('Scraping PTO entries and checking calendar...');
     const preview = await service.preview();
     syncState.preview = preview;
     syncState.status = 'idle';
+    syncState.phase = 'done';
+    syncState.phaseMessage = null;
 
     const creates = preview.entries.filter((e) => e.action === 'create').length;
     const skips = preview.entries.filter((e) => e.action === 'skip').length;
@@ -327,6 +499,8 @@ async function runPreview() {
     const message = error instanceof Error ? error.message : String(error);
     syncState.status = 'failed';
     syncState.error = message;
+    syncState.phase = 'error';
+    syncState.phaseMessage = null;
     appendLog(message, 'error');
   }
 }
@@ -345,6 +519,8 @@ async function runSync() {
     error: null,
     progress: null,
     preview: syncState.preview, // preserve preview
+    phase: 'connecting',
+    phaseMessage: 'Connecting to Workday...',
   };
 
   appendLog('Starting sync...');
@@ -360,9 +536,14 @@ async function runSync() {
         case 'EntriesParsed':
           appendLog(`Found ${event.syncableCount} PTO entries to process`);
           syncState.progress = { current: 0, total: event.syncableCount };
+          setPhase('checking-calendar', 'Checking your calendar...');
           break;
         case 'EntryProcessing':
           syncState.progress = { current: event.index, total: event.total };
+          setPhase(
+            'adding-events',
+            event.total > 1 ? `Syncing ${event.index} of ${event.total}...` : 'Syncing your PTO...',
+          );
           appendLog(`Processing ${event.date} (${event.entryType})`);
           break;
         case 'EntrySkipped':
@@ -381,12 +562,14 @@ async function runSync() {
           appendLog(`${event.date} - already on calendar`);
           break;
         case 'SyncCompleted':
+          setPhase('done', 'All done!');
           appendLog(
             `Done! ${event.entriesSynced} synced, ${event.entriesSkipped} already on calendar`,
             'success',
           );
           break;
         case 'SyncFailed':
+          setPhase('error', 'Something went wrong');
           appendLog(`Sync failed: ${event.error}`, 'error');
           break;
       }
@@ -429,6 +612,13 @@ async function runSync() {
     syncState.status = 'completed';
     syncState.lastResult = result;
     syncState.preview = null; // clear preview after successful sync
+    syncState.phase = 'done';
+    syncState.phaseMessage = 'All done!';
+
+    // Save to activity history
+    if (result) {
+      await saveActivityEntry(result);
+    }
 
     // Show notification for manual sync if UI is not open
     if (result && (result.entriesSynced > 0 || (result.errors && result.errors.length > 0))) {
@@ -448,6 +638,8 @@ async function runSync() {
     const message = error instanceof Error ? error.message : String(error);
     syncState.status = 'failed';
     syncState.error = message;
+    syncState.phase = 'error';
+    syncState.phaseMessage = null;
     appendLog(message, 'error');
   }
 }
@@ -459,14 +651,14 @@ const AUTO_SYNC_ALARM_NAME = 'auto-sync';
 async function setupAutoSyncAlarm() {
   const settings: SyncSettings = await settingsStore.getSettings();
   if (settings.autoSyncEnabled) {
-    await chrome.alarms.create(AUTO_SYNC_ALARM_NAME, {
+    await browser.alarms.create(AUTO_SYNC_ALARM_NAME, {
       periodInMinutes: settings.autoSyncIntervalMinutes,
     });
     console.log(
       `[PTO Sync] Auto-sync alarm set: every ${settings.autoSyncIntervalMinutes} minutes`,
     );
   } else {
-    await chrome.alarms.clear(AUTO_SYNC_ALARM_NAME);
+    await browser.alarms.clear(AUTO_SYNC_ALARM_NAME);
     console.log('[PTO Sync] Auto-sync alarm cleared');
   }
 }
@@ -486,6 +678,8 @@ async function runAutoSync() {
     error: null,
     progress: null,
     preview: null,
+    phase: 'connecting',
+    phaseMessage: 'Connecting to Workday...',
   };
 
   appendLog('Auto-sync starting...');
@@ -506,12 +700,14 @@ async function runAutoSync() {
           appendLog(`Re-synced: ${event.date} (${event.reason})`, 'info');
           break;
         case 'SyncCompleted':
+          setPhase('done', 'All done!');
           appendLog(
             `Done! ${event.entriesSynced} synced, ${event.entriesSkipped} already on calendar`,
             'success',
           );
           break;
         case 'SyncFailed':
+          setPhase('error', 'Something went wrong');
           appendLog(`Auto-sync failed: ${event.error}`, 'error');
           break;
       }
@@ -552,6 +748,13 @@ async function runAutoSync() {
     syncState.status = 'completed';
     syncState.lastResult = result;
     syncState.preview = null;
+    syncState.phase = 'done';
+    syncState.phaseMessage = 'All done!';
+
+    // Save to activity history
+    if (result) {
+      await saveActivityEntry(result);
+    }
 
     // Show notification if something changed
     if (result && (result.entriesSynced > 0 || (result.errors && result.errors.length > 0))) {
@@ -563,6 +766,8 @@ async function runAutoSync() {
     const message = error instanceof Error ? error.message : String(error);
     syncState.status = 'failed';
     syncState.error = message;
+    syncState.phase = 'error';
+    syncState.phaseMessage = null;
     appendLog(message, 'error');
     console.error('[PTO Sync] Auto-sync failed:', message);
   }
@@ -577,11 +782,8 @@ function showSyncNotification(result: SyncResult, isAutoSync: boolean) {
   // Don't notify if nothing happened
   if (synced === 0 && errorCount === 0) return;
 
-  // For manual sync, only notify if UI is not open
-  if (!isAutoSync) {
-    const views = chrome.extension?.getViews?.() ?? [];
-    if (views.length > 0) return;
-  }
+  // For manual sync, skip notification — user already sees the UI
+  if (!isAutoSync) return;
 
   let message: string;
   if (synced > 0 && errorCount > 0) {
@@ -592,9 +794,10 @@ function showSyncNotification(result: SyncResult, isAutoSync: boolean) {
     message = `Sync completed with ${errorCount} ${errorCount === 1 ? 'error' : 'errors'}.`;
   }
 
-  chrome.notifications.create('sync-complete', {
+  browser.notifications.create('sync-complete', {
     type: 'basic',
-    iconUrl: '',
+    iconUrl:
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
     title: 'PTO Sync',
     message,
   });
@@ -605,8 +808,8 @@ function showSyncNotification(result: SyncResult, isAutoSync: boolean) {
 export default defineBackground(() => {
   console.log('[PTO Sync] Background service worker started');
 
-  // Open side panel when clicking the extension icon
-  if (chrome.sidePanel) {
+  // Open side panel when clicking the extension icon (Chrome-only feature)
+  if (typeof chrome !== 'undefined' && chrome.sidePanel) {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   }
 
@@ -614,7 +817,7 @@ export default defineBackground(() => {
   setupAutoSyncAlarm();
 
   // Listen for alarm events
-  chrome.alarms.onAlarm.addListener((alarm) => {
+  browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === AUTO_SYNC_ALARM_NAME) {
       runAutoSync();
     }
@@ -623,17 +826,25 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
     (message: { type: string; settings?: SyncSettings; date?: string }, _sender, sendResponse) => {
       if (message.type === 'START_SYNC') {
-        runSync().then(() => {
-          // Sync finished (state already updated)
-        });
+        runSync()
+          .then(() => {
+            // Sync finished (state already updated)
+          })
+          .catch((err) => {
+            console.error('[PTO Sync] Unhandled sync error:', err);
+          });
         sendResponse({ started: true });
         return false;
       }
 
       if (message.type === 'PREVIEW_SYNC') {
-        runPreview().then(() => {
-          // Preview finished (state already updated)
-        });
+        runPreview()
+          .then(() => {
+            // Preview finished (state already updated)
+          })
+          .catch((err) => {
+            console.error('[PTO Sync] Unhandled preview error:', err);
+          });
         sendResponse({ started: true });
         return false;
       }
@@ -646,8 +857,17 @@ export default defineBackground(() => {
           error: syncState.error,
           progress: syncState.progress,
           preview: syncState.preview,
+          phase: syncState.phase,
+          phaseMessage: syncState.phaseMessage,
         });
         return false;
+      }
+
+      if (message.type === 'GET_ACTIVITY_HISTORY') {
+        getActivityHistory()
+          .then((history) => sendResponse({ success: true, history }))
+          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+        return true;
       }
 
       if (message.type === 'GET_SYNCED_EVENTS') {
@@ -761,6 +981,68 @@ export default defineBackground(() => {
         listCalendars(getAuthToken)
           .then((calendars) => sendResponse({ success: true, calendars }))
           .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+
+      if (message.type === 'GET_NEXT_ALARM') {
+        browser.alarms
+          .get(AUTO_SYNC_ALARM_NAME)
+          .then((alarm) => {
+            sendResponse({
+              success: true,
+              scheduledTime: alarm ? alarm.scheduledTime : null,
+            });
+          })
+          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+
+      if (message.type === 'DETECT_WORKDAY_TABS') {
+        browser.tabs
+          .query({ url: 'https://*.myworkday.com/*' })
+          .then((tabs) => {
+            const tabInfo = tabs.map((t) => ({ url: t.url, title: t.title }));
+            sendResponse({ success: true, tabs: tabInfo });
+          })
+          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+
+      if (message.type === 'RESET_ALL') {
+        (async () => {
+          try {
+            // Clear all extension storage
+            await browser.storage.local.clear();
+            // Clear any alarms
+            await browser.alarms.clearAll();
+            // Revoke the cached auth token (Chrome-only API)
+            if (isChromeIdentityAvailable()) {
+              try {
+                const token = await getAuthTokenChrome(false);
+                await new Promise<void>((resolve) => {
+                  chrome.identity.removeCachedAuthToken({ token }, () => resolve());
+                });
+              } catch {
+                // No token to revoke — that's fine
+              }
+            }
+            // Reset in-memory state
+            syncState = {
+              status: 'idle',
+              log: [],
+              lastResult: null,
+              error: null,
+              progress: null,
+              preview: null,
+              phase: null,
+              phaseMessage: null,
+            };
+            sendResponse({ success: true });
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            sendResponse({ success: false, error: errMsg });
+          }
+        })();
         return true;
       }
 

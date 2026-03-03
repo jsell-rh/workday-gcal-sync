@@ -17,6 +17,7 @@ interface SyncStatusResponse {
     entriesFound: number;
     entriesSynced: number;
     entriesSkipped: number;
+    entriesResynced?: number;
     errors: { entryDate: string; message: string }[];
   } | null;
   error: string | null;
@@ -25,6 +26,8 @@ interface SyncStatusResponse {
     total: number;
   } | null;
   preview: SyncPreview | null;
+  phase: string | null;
+  phaseMessage: string | null;
 }
 
 interface SyncedEventEntry {
@@ -32,37 +35,50 @@ interface SyncedEventEntry {
   eventId: string;
 }
 
+interface ActivityEntry {
+  date: string;
+  summary: string;
+  eventsAdded: number;
+  eventsSkipped: number;
+  errors: number;
+}
+
 export interface SyncUIElements {
-  checkBtn: HTMLButtonElement;
-  checkBtnText: HTMLElement;
-  syncBtn: HTMLButtonElement;
-  syncBtnText: HTMLElement;
-  lastSyncValue: HTMLElement;
-  syncStats: HTMLElement;
-  statFound: HTMLElement;
-  statSynced: HTMLElement;
-  statSkipped: HTMLElement;
-  statErrorsContainer: HTMLElement;
-  statErrors: HTMLElement;
-  logArea: HTMLElement;
-  logWrapper: HTMLElement;
-  logToggle: HTMLButtonElement;
-  logToggleArrow: HTMLElement;
+  syncNowBtn: HTMLButtonElement;
+  syncNowBtnText: HTMLElement;
+  previewLink: HTMLButtonElement;
+  statusSummary: HTMLElement;
+  statusIcon: HTMLElement;
+  statusHeadline: HTMLElement;
+  statusDetail: HTMLElement;
   progressArea: HTMLElement;
   progressBar: HTMLElement;
-  progressText: HTMLElement;
+  progressPhase: HTMLElement;
   errorBanner: HTMLElement;
   errorBannerMessage: HTMLElement;
-  successBanner: HTMLElement;
-  successMessage: HTMLElement;
   welcomeCard: HTMLElement;
+  completionCard: HTMLElement;
+  completionMessage: HTMLElement;
+  completionDetailsToggle: HTMLButtonElement;
+  completionDetails: HTMLElement;
+  completionDetailsContent: HTMLElement;
   previewArea: HTMLElement;
+  previewBack: HTMLButtonElement;
   previewSummary: HTMLElement;
   previewTable: HTMLElement;
+  previewApplyBtn: HTMLButtonElement;
+  previewApplyBtnText: HTMLElement;
+  activitySection: HTMLElement;
+  activityList: HTMLElement;
+  syncedSection: HTMLElement;
   syncedEventsToggle: HTMLButtonElement;
+  syncedEventsLabel: HTMLElement;
   syncedEventsPanel: HTMLElement;
   syncedEventsList: HTMLElement;
   unsyncAllBtn: HTMLButtonElement;
+  autoSyncFooter: HTMLElement;
+  autoSyncStatusText: HTMLElement;
+  mainContent: HTMLElement;
 }
 
 /** Clean up raw error messages for display */
@@ -88,7 +104,6 @@ function compactDate(isoDate: string): string {
 }
 
 function monthKey(isoDate: string): string {
-  // Returns "YYYY-MM" for grouping
   return isoDate.substring(0, 7);
 }
 
@@ -117,7 +132,19 @@ function actionBadgeClass(action: SyncPreviewEntry['action']): string {
   }
 }
 
-function actionLabel(action: SyncPreviewEntry['action']): string {
+function actionLabel(action: SyncPreviewEntry['action'], past = false): string {
+  if (past) {
+    switch (action) {
+      case 'create':
+        return 'Added';
+      case 'skip':
+        return 'Already there';
+      case 'delete':
+        return 'Removed';
+      case 'resync':
+        return 'Re-added';
+    }
+  }
   switch (action) {
     case 'create':
       return 'New';
@@ -126,11 +153,10 @@ function actionLabel(action: SyncPreviewEntry['action']): string {
     case 'delete':
       return 'Remove';
     case 'resync':
-      return 'Re-sync';
+      return 'Re-add';
   }
 }
 
-/** Whether this action is something that will change state */
 function isActionable(action: SyncPreviewEntry['action']): boolean {
   return action === 'create' || action === 'delete' || action === 'resync';
 }
@@ -141,7 +167,6 @@ interface MonthGroup<T> {
   entries: T[];
 }
 
-/** Group entries by month, newest month first */
 function groupByMonth<T extends { date: string }>(entries: T[]): MonthGroup<T>[] {
   const groups = new Map<string, T[]>();
 
@@ -153,7 +178,6 @@ function groupByMonth<T extends { date: string }>(entries: T[]): MonthGroup<T>[]
     groups.get(key)!.push(entry);
   }
 
-  // Sort groups newest first
   const sortedKeys = Array.from(groups.keys()).sort((a, b) => b.localeCompare(a));
 
   return sortedKeys.map((key) => ({
@@ -163,7 +187,6 @@ function groupByMonth<T extends { date: string }>(entries: T[]): MonthGroup<T>[]
   }));
 }
 
-/** Build a human-readable summary message for the preview */
 function buildSummaryMessage(summary: {
   creates: number;
   skips: number;
@@ -172,20 +195,17 @@ function buildSummaryMessage(summary: {
 }): string {
   const parts: string[] = [];
 
-  // Case: everything is up to date
   if (summary.creates === 0 && summary.deletes === 0 && summary.resyncs === 0) {
     const total = summary.skips;
     return `All ${total} PTO ${total === 1 ? 'entry is' : 'entries are'} already on your calendar. Nothing to do.`;
   }
 
-  // Re-syncs (entries removed from calendar that will be re-added)
   if (summary.resyncs > 0) {
     parts.push(
       `${summary.resyncs} ${summary.resyncs === 1 ? 'entry was' : 'entries were'} removed from your calendar and will be re-added.`,
     );
   }
 
-  // New entries to add
   if (summary.creates > 0) {
     if (summary.resyncs > 0) {
       parts.push(
@@ -198,14 +218,12 @@ function buildSummaryMessage(summary: {
     }
   }
 
-  // Entries to remove (cancellations)
   if (summary.deletes > 0) {
     parts.push(
       `${summary.deletes} cancelled ${summary.deletes === 1 ? 'entry' : 'entries'} will be removed from your calendar.`,
     );
   }
 
-  // Existing entries
   if (summary.skips > 0) {
     parts.push(`${summary.skips} ${summary.skips === 1 ? 'is' : 'are'} already there.`);
   }
@@ -213,96 +231,144 @@ function buildSummaryMessage(summary: {
   return parts.join(' ');
 }
 
-/** Build the smart sync button text */
-function buildSyncButtonText(summary: {
+function buildApplyButtonText(summary: {
   creates: number;
   deletes: number;
   resyncs: number;
 }): string {
   const addCount = summary.creates + summary.resyncs;
 
-  // Nothing to do
   if (addCount === 0 && summary.deletes === 0) {
     return 'Everything is up to date';
   }
 
-  // Only re-adds (no new, no deletes)
   if (summary.creates === 0 && summary.resyncs > 0 && summary.deletes === 0) {
     return `Re-add ${summary.resyncs} ${summary.resyncs === 1 ? 'event' : 'events'} to calendar`;
   }
 
-  // Adds and removals
   if (addCount > 0 && summary.deletes > 0) {
     return `Add ${addCount} ${addCount === 1 ? 'event' : 'events'} and remove ${summary.deletes}`;
   }
 
-  // Only adds
   if (addCount > 0) {
     return `Add ${addCount} ${addCount === 1 ? 'event' : 'events'} to calendar`;
   }
 
-  // Only removals
   return `Remove ${summary.deletes} ${summary.deletes === 1 ? 'event' : 'events'} from calendar`;
+}
+
+function relativeTime(isoDatetime: string): string {
+  const date = new Date(isoDatetime);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins === 1) return '1 minute ago';
+  if (diffMins < 60) return `${diffMins} minutes ago`;
+
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours === 1) return '1 hour ago';
+  if (diffHours < 24) return `${diffHours} hours ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatActivityDate(isoDatetime: string): string {
+  const date = new Date(isoDatetime);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = date.toDateString() === yesterday.toDateString();
+
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+  if (isToday) return time;
+  if (isYesterday) return `Yesterday, ${time}`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + `, ${time}`;
 }
 
 export function initSyncUI(elements: SyncUIElements) {
   const {
-    checkBtn,
-    checkBtnText,
-    syncBtn,
-    syncBtnText,
-    lastSyncValue,
-    syncStats,
-    statFound,
-    statSynced,
-    statSkipped,
-    statErrorsContainer,
-    statErrors,
-    logArea,
-    logWrapper,
-    logToggle,
-    logToggleArrow,
+    syncNowBtn,
+    syncNowBtnText,
+    previewLink,
+    statusSummary,
+    statusIcon,
+    statusHeadline,
+    statusDetail,
     progressArea,
     progressBar,
-    progressText,
+    progressPhase,
     errorBanner,
     errorBannerMessage,
-    successBanner,
-    successMessage,
     welcomeCard,
+    completionCard,
+    completionMessage,
+    completionDetailsToggle,
+    completionDetails,
+    completionDetailsContent,
     previewArea,
+    previewBack,
     previewSummary,
     previewTable,
+    previewApplyBtn,
+    previewApplyBtnText,
+    activitySection,
+    activityList,
+    syncedSection,
     syncedEventsToggle,
+    syncedEventsLabel,
     syncedEventsPanel,
     syncedEventsList,
     unsyncAllBtn,
+    autoSyncFooter,
+    autoSyncStatusText,
   } = elements;
 
-  let logDetailsOpen = false;
+  // mainContent is passed for future use but not currently needed
+  void elements.mainContent;
+
   let syncedEventsOpen = false;
-  let hasShownPreview = false;
+  let completionDetailsOpen = false;
+  let inPreviewMode = false;
 
   // Track collapsed state for month groups
   const collapsedMonths = new Map<string, boolean>();
   const collapsedSyncedMonths = new Map<string, boolean>();
-
-  // --- Log toggle ---
-  logToggle.addEventListener('click', () => {
-    logDetailsOpen = !logDetailsOpen;
-    logArea.classList.toggle('hidden', !logDetailsOpen);
-    logToggle.setAttribute('aria-expanded', String(logDetailsOpen));
-    logToggleArrow.classList.toggle('open', logDetailsOpen);
-  });
+  const collapsedCompletionMonths = new Map<string, boolean>();
 
   // --- Synced events toggle ---
   syncedEventsToggle.addEventListener('click', () => {
     syncedEventsOpen = !syncedEventsOpen;
     syncedEventsPanel.classList.toggle('hidden', !syncedEventsOpen);
     syncedEventsToggle.setAttribute('aria-expanded', String(syncedEventsOpen));
+    const arrow = syncedEventsToggle.querySelector('.collapsible-arrow');
+    if (arrow) arrow.classList.toggle('open', syncedEventsOpen);
     if (syncedEventsOpen) {
       loadSyncedEvents();
     }
+  });
+
+  // --- Completion details toggle ---
+  completionDetailsToggle.addEventListener('click', () => {
+    completionDetailsOpen = !completionDetailsOpen;
+    completionDetails.classList.toggle('hidden', !completionDetailsOpen);
+    completionDetailsToggle.textContent = completionDetailsOpen ? 'Hide details' : 'View details';
+    completionDetailsToggle.setAttribute('aria-expanded', String(completionDetailsOpen));
+  });
+
+  // --- Preview mode ---
+  previewBack.addEventListener('click', () => {
+    inPreviewMode = false;
+    previewArea.classList.add('hidden');
+    showMainView();
   });
 
   // --- Polling ---
@@ -339,119 +405,149 @@ export function initSyncUI(elements: SyncUIElements) {
     }
   }
 
-  function renderLog(log: LogEntry[]) {
-    logArea.innerHTML = '';
-    if (log.length === 0) {
-      logWrapper.classList.add('hidden');
-      return;
-    }
-    logWrapper.classList.remove('hidden');
-    for (const entry of log) {
-      const el = document.createElement('div');
-      el.className = `log-entry ${entry.level}`;
-      el.textContent = `${entry.timestamp} ${entry.message}`;
-      logArea.appendChild(el);
-    }
-    logArea.scrollTop = logArea.scrollHeight;
+  function showMainView() {
+    // Make main sections visible (non-preview mode)
+    syncNowBtn.classList.remove('hidden');
+    previewLink.parentElement?.classList.remove('hidden');
+    statusSummary.classList.remove('hidden');
+    activitySection.classList.remove('hidden');
+    syncedSection.classList.remove('hidden');
   }
 
-  function renderProgress(progress: SyncStatusResponse['progress']) {
+  function hideMainForPreview() {
+    syncNowBtn.classList.add('hidden');
+    previewLink.parentElement?.classList.add('hidden');
+    completionCard.classList.add('hidden');
+    statusSummary.classList.add('hidden');
+    activitySection.classList.add('hidden');
+    syncedSection.classList.add('hidden');
+    progressArea.classList.add('hidden');
+  }
+
+  function hideMainForSync() {
+    welcomeCard.classList.add('hidden');
+    completionCard.classList.add('hidden');
+    previewArea.classList.add('hidden');
+    errorBanner.classList.add('hidden');
+  }
+
+  function renderProgress(progress: SyncStatusResponse['progress'], phaseMessage: string | null) {
+    if (phaseMessage) {
+      progressPhase.textContent = phaseMessage;
+    }
+
     if (!progress || progress.total === 0) {
-      progressArea.classList.add('hidden');
+      // Show indeterminate progress
+      progressBar.classList.add('indeterminate');
+      progressBar.style.width = '30%';
       return;
     }
-    progressArea.classList.remove('hidden');
+
+    progressBar.classList.remove('indeterminate');
     const pct = Math.round((progress.current / progress.total) * 100);
     progressBar.style.width = `${pct}%`;
-    progressText.textContent = `Processing ${progress.current} of ${progress.total} entries...`;
   }
 
-  function renderResult(result: SyncStatusResponse['lastResult']) {
+  function renderStatusSummary(result: SyncStatusResponse['lastResult']) {
     if (!result) return;
-    const date = new Date(result.syncedAt);
-    lastSyncValue.textContent = date.toLocaleString();
-    lastSyncValue.className = 'status-value success';
-    syncStats.classList.remove('hidden');
-    statFound.textContent = String(result.entriesFound);
-    statSynced.textContent = String(result.entriesSynced);
-    statSkipped.textContent = String(result.entriesSkipped);
 
-    const errorCount = result.errors?.length ?? 0;
-    if (errorCount > 0) {
-      syncStats.classList.add('has-errors');
-      statErrorsContainer.classList.remove('hidden');
-      statErrors.textContent = String(errorCount);
+    statusSummary.classList.remove('hidden');
+
+    const syncedAt = relativeTime(result.syncedAt);
+    const totalEvents = result.entriesFound;
+    const hasErrors = result.errors && result.errors.length > 0;
+
+    statusHeadline.textContent = `Last synced ${syncedAt}`;
+
+    // Build detail line with event count
+    const eventCountText = `${totalEvents} event${totalEvents === 1 ? '' : 's'} on your calendar`;
+    statusDetail.textContent = eventCountText;
+
+    if (hasErrors) {
+      statusIcon.className = 'status-icon status-icon-warning';
+      statusIcon.textContent = '!';
     } else {
-      syncStats.classList.remove('has-errors');
-      statErrorsContainer.classList.add('hidden');
+      statusIcon.className = 'status-icon status-icon-success';
+      statusIcon.textContent = '\u2713';
     }
   }
 
-  function showSuccessBanner(result: SyncStatusResponse['lastResult']) {
+  function renderCompletionCard(result: SyncStatusResponse['lastResult']) {
     if (!result) return;
+
+    completionCard.classList.remove('hidden');
+
     const parts: string[] = [];
-    if (result.entriesSynced > 0) {
-      parts.push(`${result.entriesSynced} event${result.entriesSynced === 1 ? '' : 's'} synced`);
+    const newlyAdded = result.entriesSynced;
+    const reAdded = result.entriesResynced ?? 0;
+    if (newlyAdded > 0) {
+      parts.push(`Added ${newlyAdded} new event${newlyAdded === 1 ? '' : 's'} to your calendar.`);
     }
+    if (reAdded > 0) {
+      parts.push(`Re-added ${reAdded} event${reAdded === 1 ? '' : 's'}.`);
+    }
+    const added = newlyAdded + reAdded;
     if (result.entriesSkipped > 0) {
-      parts.push(`${result.entriesSkipped} already on calendar`);
+      parts.push(
+        `${result.entriesSkipped} ${result.entriesSkipped === 1 ? 'was' : 'were'} already there.`,
+      );
     }
-    if (parts.length === 0) {
-      parts.push('All up to date');
+    if (added === 0 && result.entriesSkipped > 0) {
+      completionMessage.textContent = 'Everything is already up to date.';
+    } else if (parts.length === 0) {
+      completionMessage.textContent = 'No PTO entries found.';
+    } else {
+      completionMessage.textContent = parts.join(' ');
     }
-    successMessage.textContent = parts.join(', ');
-    successBanner.classList.remove('hidden');
+
+    // Reset details
+    completionDetailsOpen = false;
+    completionDetails.classList.add('hidden');
+    completionDetailsToggle.textContent = 'View details';
   }
 
-  function showErrorBanner(result: SyncStatusResponse['lastResult'], topError: string | null) {
-    if (topError) {
-      errorBannerMessage.textContent = humanizeError(topError);
+  function showErrorBanner(errorMsg: string | null, result: SyncStatusResponse['lastResult']) {
+    if (errorMsg) {
+      errorBannerMessage.textContent = humanizeError(errorMsg);
       errorBanner.classList.remove('hidden');
       return;
     }
     if (result && result.errors && result.errors.length > 0) {
       const count = result.errors.length;
       const first = humanizeError(result.errors[0].message);
-      errorBannerMessage.textContent =
-        count === 1 ? first : `${first} (+${count - 1} more - see details)`;
+      errorBannerMessage.textContent = count === 1 ? first : `${first} (+${count - 1} more)`;
       errorBanner.classList.remove('hidden');
     }
   }
 
-  function clearBanners() {
-    successBanner.classList.add('hidden');
-    errorBanner.classList.add('hidden');
-  }
+  // --- Preview rendering ---
 
-  /** Create a collapsible month group DOM element */
   function createMonthGroupEl(
     group: MonthGroup<SyncPreviewEntry>,
     stateMap: Map<string, boolean>,
+    pastTense = false,
   ): HTMLElement {
     const container = document.createElement('div');
     container.className = 'month-group';
 
     const hasActionableEntries = group.entries.some((e) => isActionable(e.action));
 
-    // If no stored state, default: expand if has actionable, collapse otherwise
     if (!stateMap.has(group.key)) {
       stateMap.set(group.key, !hasActionableEntries);
     }
     const isCollapsed = stateMap.get(group.key)!;
 
-    // Month header
     const header = document.createElement('button');
     header.className = 'month-header';
     header.type = 'button';
     header.setAttribute('aria-expanded', String(!isCollapsed));
 
-    // Left side: arrow + month name
     const headerLeft = document.createElement('span');
     headerLeft.className = 'month-header-left';
 
     const arrow = document.createElement('span');
     arrow.className = `month-arrow${isCollapsed ? '' : ' open'}`;
-    arrow.textContent = '\u25B6'; // ►
+    arrow.textContent = '\u25B6';
 
     const name = document.createElement('span');
     name.className = 'month-name';
@@ -460,7 +556,6 @@ export function initSyncUI(elements: SyncUIElements) {
     headerLeft.appendChild(arrow);
     headerLeft.appendChild(name);
 
-    // Right side: badge
     const badge = document.createElement('span');
     badge.className = 'month-badge';
     badge.innerHTML = buildMonthBadge(group.entries);
@@ -468,15 +563,13 @@ export function initSyncUI(elements: SyncUIElements) {
     header.appendChild(headerLeft);
     header.appendChild(badge);
 
-    // Entries container
     const entriesEl = document.createElement('div');
     entriesEl.className = `month-entries${isCollapsed ? ' collapsed' : ''}`;
 
     for (const entry of group.entries) {
-      entriesEl.appendChild(createPreviewRowEl(entry));
+      entriesEl.appendChild(createPreviewRowEl(entry, pastTense));
     }
 
-    // Toggle
     header.addEventListener('click', () => {
       const nowCollapsed = !entriesEl.classList.contains('collapsed');
       entriesEl.classList.toggle('collapsed', nowCollapsed);
@@ -490,7 +583,6 @@ export function initSyncUI(elements: SyncUIElements) {
     return container;
   }
 
-  /** Build the badge text for a month header */
   function buildMonthBadge(entries: SyncPreviewEntry[]): string {
     const creates = entries.filter((e) => e.action === 'create').length;
     const deletes = entries.filter((e) => e.action === 'delete').length;
@@ -502,7 +594,6 @@ export function initSyncUI(elements: SyncUIElements) {
     if (resyncs > 0) parts.push(`<span class="month-badge-resync">${resyncs} re-sync</span>`);
     if (deletes > 0) parts.push(`<span class="month-badge-delete">${deletes} remove</span>`);
     if (skips > 0 && parts.length === 0) {
-      // Only show existing count if no actionable items
       parts.push(`${skips} existing`);
     } else if (skips > 0) {
       parts.push(`${skips} existing`);
@@ -511,17 +602,14 @@ export function initSyncUI(elements: SyncUIElements) {
     return parts.join(', ');
   }
 
-  /** Create a single compact preview row */
-  function createPreviewRowEl(entry: SyncPreviewEntry): HTMLElement {
+  function createPreviewRowEl(entry: SyncPreviewEntry, pastTense = false): HTMLElement {
     const row = document.createElement('div');
     row.className = `preview-row preview-row-${entry.action}`;
 
-    // Date: "Mar 13 (Fri)"
     const dateEl = document.createElement('span');
     dateEl.className = 'preview-date-combined';
     dateEl.textContent = compactDate(entry.date);
 
-    // Info: type + optional hours
     const infoEl = document.createElement('span');
     infoEl.className = 'preview-info';
 
@@ -530,7 +618,6 @@ export function initSyncUI(elements: SyncUIElements) {
     typeEl.textContent = shortType(entry.type);
     infoEl.appendChild(typeEl);
 
-    // Only show hours when != 8 (non-full-day)
     const absHours = Math.abs(entry.hours);
     if (absHours !== 8) {
       const hoursEl = document.createElement('span');
@@ -539,12 +626,11 @@ export function initSyncUI(elements: SyncUIElements) {
       infoEl.appendChild(hoursEl);
     }
 
-    // Action badge
     const actionEl = document.createElement('span');
     actionEl.className = 'preview-action';
     const badgeEl = document.createElement('span');
     badgeEl.className = `action-badge ${actionBadgeClass(entry.action)}`;
-    badgeEl.textContent = actionLabel(entry.action);
+    badgeEl.textContent = actionLabel(entry.action, pastTense);
     actionEl.appendChild(badgeEl);
 
     row.appendChild(dateEl);
@@ -554,136 +640,156 @@ export function initSyncUI(elements: SyncUIElements) {
     return row;
   }
 
-  function renderPreview(preview: SyncPreview | null) {
-    if (!preview || preview.entries.length === 0) {
-      previewArea.classList.add('hidden');
-      syncBtn.classList.add('hidden');
-      return;
-    }
-
-    previewArea.classList.remove('hidden');
-    hasShownPreview = true;
-
-    // Render summary bar with human-readable message
+  function renderPreviewInArea(preview: SyncPreview) {
     const summary = summarizePreview(preview);
     const summaryMessage = buildSummaryMessage(summary);
     previewSummary.innerHTML = `<div class="summary-message">${summaryMessage}</div>`;
 
-    // Group entries by month, newest first
     const monthGroups = groupByMonth(preview.entries);
-
-    // Render month-grouped table
     previewTable.innerHTML = '';
     for (const group of monthGroups) {
       previewTable.appendChild(createMonthGroupEl(group, collapsedMonths));
     }
 
-    // Show sync button with smart text
+    // Apply button
     const hasActions = summary.creates > 0 || summary.deletes > 0 || summary.resyncs > 0;
     if (hasActions) {
-      syncBtn.classList.remove('hidden');
-      syncBtn.disabled = false;
-      syncBtn.classList.remove('up-to-date');
-      syncBtnText.textContent = buildSyncButtonText(summary);
+      previewApplyBtn.classList.remove('hidden');
+      previewApplyBtn.disabled = false;
+      previewApplyBtnText.textContent = buildApplyButtonText(summary);
     } else {
-      // All entries are skips -- calendar is up to date
-      syncBtn.classList.remove('hidden');
-      syncBtn.disabled = true;
-      syncBtn.classList.add('up-to-date');
-      syncBtnText.textContent = 'Everything is up to date';
+      previewApplyBtn.classList.remove('hidden');
+      previewApplyBtn.disabled = true;
+      previewApplyBtnText.textContent = 'Everything is up to date';
     }
   }
 
-  function renderStatus(data: SyncStatusResponse) {
-    renderLog(data.log);
+  function renderCompletionDetails(preview: SyncPreview) {
+    completionDetailsContent.innerHTML = '';
+    const monthGroups = groupByMonth(preview.entries);
 
-    switch (data.status) {
-      case 'previewing':
-        checkBtn.disabled = true;
-        showSpinner(checkBtn, true);
-        checkBtnText.textContent = 'Checking Workday...';
-        syncBtn.classList.add('hidden');
-        welcomeCard.classList.add('hidden');
-        clearBanners();
-        previewArea.classList.add('hidden');
-        break;
+    const table = document.createElement('div');
+    table.className = 'preview-table';
+    for (const group of monthGroups) {
+      table.appendChild(createMonthGroupEl(group, collapsedCompletionMonths, true));
+    }
+    completionDetailsContent.appendChild(table);
+  }
 
-      case 'syncing':
-      case 'awaiting-sso':
-        checkBtn.disabled = true;
-        showSpinner(checkBtn, true);
-        checkBtnText.textContent =
-          data.status === 'awaiting-sso' ? 'Waiting for sign-in...' : 'Syncing...';
-        syncBtn.classList.add('hidden');
-        syncBtn.disabled = true;
-        welcomeCard.classList.add('hidden');
-        clearBanners();
-        previewArea.classList.add('hidden');
-        renderProgress(data.progress);
-        break;
+  // --- Activity history ---
 
-      case 'completed':
-        checkBtn.disabled = false;
-        showSpinner(checkBtn, false);
-        checkBtnText.textContent = hasShownPreview ? 'Refresh preview' : 'Check Workday';
-        syncBtn.classList.add('hidden');
-        syncBtn.disabled = false;
-        progressArea.classList.add('hidden');
-        previewArea.classList.add('hidden');
-        renderResult(data.lastResult);
-        showSuccessBanner(data.lastResult);
-        if (data.lastResult?.errors && data.lastResult.errors.length > 0) {
-          showErrorBanner(data.lastResult, null);
+  async function loadActivityHistory() {
+    try {
+      const response: { success: boolean; history?: ActivityEntry[] } =
+        await browser.runtime.sendMessage({ type: 'GET_ACTIVITY_HISTORY' });
+
+      if (response.success && response.history && response.history.length > 0) {
+        activitySection.classList.remove('hidden');
+        activityList.innerHTML = '';
+
+        const entries = response.history.slice(0, 5);
+        for (const entry of entries) {
+          const item = document.createElement('div');
+          item.className = 'activity-item';
+
+          const dateEl = document.createElement('span');
+          dateEl.className = 'activity-date';
+          dateEl.textContent = formatActivityDate(entry.date);
+
+          const summaryEl = document.createElement('span');
+          summaryEl.className = 'activity-summary';
+          summaryEl.textContent = entry.summary;
+
+          item.appendChild(dateEl);
+          item.appendChild(summaryEl);
+          activityList.appendChild(item);
         }
-        stopPolling();
-        break;
-
-      case 'failed':
-        checkBtn.disabled = false;
-        showSpinner(checkBtn, false);
-        checkBtnText.textContent = hasShownPreview ? 'Refresh preview' : 'Check Workday';
-        syncBtn.classList.add('hidden');
-        progressArea.classList.add('hidden');
-        previewArea.classList.add('hidden');
-        lastSyncValue.textContent = data.lastResult
-          ? new Date(data.lastResult.syncedAt).toLocaleString()
-          : 'Failed';
-        lastSyncValue.className = data.lastResult ? 'status-value success' : 'status-value error';
-        showErrorBanner(null, data.error);
-        stopPolling();
-        break;
-
-      case 'idle':
-        checkBtn.disabled = false;
-        showSpinner(checkBtn, false);
-        progressArea.classList.add('hidden');
-
-        if (data.preview) {
-          checkBtnText.textContent = 'Refresh preview';
-          hasShownPreview = true;
-          renderPreview(data.preview);
-        } else {
-          checkBtnText.textContent = hasShownPreview ? 'Refresh preview' : 'Check Workday';
-          previewArea.classList.add('hidden');
-          syncBtn.classList.add('hidden');
-        }
-
-        renderResult(data.lastResult);
-        // Show welcome if never synced and no preview
-        if (!data.lastResult && !data.preview) {
-          welcomeCard.classList.remove('hidden');
-        } else {
-          welcomeCard.classList.add('hidden');
-        }
-        stopPolling();
-        break;
+      } else {
+        activitySection.classList.add('hidden');
+      }
+    } catch {
+      activitySection.classList.add('hidden');
     }
   }
+
+  // --- Auto-sync footer ---
+
+  async function loadAutoSyncStatus() {
+    try {
+      const response: {
+        success: boolean;
+        settings?: { autoSyncEnabled: boolean; autoSyncIntervalMinutes: number };
+      } = await browser.runtime.sendMessage({ type: 'GET_SETTINGS' });
+
+      if (response.success && response.settings) {
+        if (response.settings.autoSyncEnabled) {
+          const mins = response.settings.autoSyncIntervalMinutes;
+          let interval: string;
+          if (mins < 60) {
+            interval = `${mins} min`;
+          } else {
+            const hours = mins / 60;
+            interval = `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+          }
+
+          // Try to get the next alarm time
+          let nextSyncText = '';
+          try {
+            const alarmResponse: { success: boolean; scheduledTime?: number | null } =
+              await browser.runtime.sendMessage({ type: 'GET_NEXT_ALARM' });
+            if (alarmResponse.success && alarmResponse.scheduledTime) {
+              const nextTime = new Date(alarmResponse.scheduledTime);
+              const now = new Date();
+              const diffMs = nextTime.getTime() - now.getTime();
+              const diffMins = Math.max(0, Math.round(diffMs / 60000));
+
+              if (diffMins < 1) {
+                nextSyncText = ' \u00B7 Next: any moment';
+              } else if (diffMins === 1) {
+                nextSyncText = ' \u00B7 Next: in 1 min';
+              } else if (diffMins < 60) {
+                nextSyncText = ` \u00B7 Next: in ${diffMins} min`;
+              } else {
+                const timeStr = nextTime.toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                });
+                nextSyncText = ` \u00B7 Next: ${timeStr}`;
+              }
+            }
+          } catch {
+            // Alarm info not available — just show interval
+          }
+
+          autoSyncStatusText.textContent = `Auto-sync: Every ${interval}${nextSyncText}`;
+        } else {
+          autoSyncStatusText.textContent = 'Auto-sync: Off';
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Open settings when clicking auto-sync footer
+  autoSyncFooter.setAttribute('role', 'button');
+  autoSyncFooter.setAttribute('tabindex', '0');
+  autoSyncFooter.addEventListener('click', () => {
+    const settingsToggle = document.getElementById('settings-toggle') as HTMLButtonElement;
+    if (settingsToggle) settingsToggle.click();
+  });
+  autoSyncFooter.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const settingsToggle = document.getElementById('settings-toggle') as HTMLButtonElement;
+      if (settingsToggle) settingsToggle.click();
+    }
+  });
 
   // --- Synced events ---
 
   async function loadSyncedEvents() {
-    syncedEventsList.innerHTML = '<span class="synced-loading">Loading synced events...</span>';
+    syncedEventsList.innerHTML = '<span class="synced-loading">Loading...</span>';
     try {
       const response: { success: boolean; entries?: SyncedEventEntry[]; error?: string } =
         await browser.runtime.sendMessage({ type: 'GET_SYNCED_EVENTS' });
@@ -700,8 +806,18 @@ export function initSyncUI(elements: SyncUIElements) {
     }
   }
 
+  function updateSyncedEventsLabel(count?: number) {
+    if (count !== undefined && count > 0) {
+      syncedEventsLabel.textContent = `Manage synced events (${count})`;
+    } else {
+      syncedEventsLabel.textContent = 'Manage synced events';
+    }
+  }
+
   function renderSyncedEvents(entries: SyncedEventEntry[]) {
     syncedEventsList.innerHTML = '';
+    updateSyncedEventsLabel(entries.length);
+
     if (entries.length === 0) {
       syncedEventsList.innerHTML = '<span class="synced-empty">No synced events yet.</span>';
       unsyncAllBtn.classList.add('hidden');
@@ -710,20 +826,17 @@ export function initSyncUI(elements: SyncUIElements) {
 
     unsyncAllBtn.classList.remove('hidden');
 
-    // Group by month
     const monthGroups = groupByMonth(entries);
 
     for (const group of monthGroups) {
       const groupEl = document.createElement('div');
       groupEl.className = 'month-group';
 
-      // Default: all expanded for synced events
       if (!collapsedSyncedMonths.has(group.key)) {
         collapsedSyncedMonths.set(group.key, false);
       }
       const isCollapsed = collapsedSyncedMonths.get(group.key)!;
 
-      // Header
       const header = document.createElement('button');
       header.className = 'month-header';
       header.type = 'button';
@@ -750,7 +863,6 @@ export function initSyncUI(elements: SyncUIElements) {
       header.appendChild(headerLeft);
       header.appendChild(badge);
 
-      // Entries
       const entriesEl = document.createElement('div');
       entriesEl.className = `month-entries${isCollapsed ? ' collapsed' : ''}`;
 
@@ -762,23 +874,18 @@ export function initSyncUI(elements: SyncUIElements) {
         dateEl.className = 'synced-date';
         dateEl.textContent = compactDate(entry.date);
 
-        const idHint = document.createElement('span');
-        idHint.className = 'synced-id';
-        idHint.textContent = entry.eventId === 'existing' ? '(pre-existing)' : '';
-
         const removeBtn = document.createElement('button');
         removeBtn.className = 'synced-remove';
         removeBtn.textContent = 'Remove';
         removeBtn.type = 'button';
+        removeBtn.setAttribute('aria-label', `Remove event for ${compactDate(entry.date)}`);
         removeBtn.addEventListener('click', () => unsyncEvent(entry.date, row));
 
         row.appendChild(dateEl);
-        row.appendChild(idHint);
         row.appendChild(removeBtn);
         entriesEl.appendChild(row);
       }
 
-      // Toggle
       header.addEventListener('click', () => {
         const nowCollapsed = !entriesEl.classList.contains('collapsed');
         entriesEl.classList.toggle('collapsed', nowCollapsed);
@@ -794,10 +901,13 @@ export function initSyncUI(elements: SyncUIElements) {
   }
 
   async function unsyncEvent(date: string, rowEl: HTMLElement) {
+    const confirmMsg = `Remove this event from your calendar?\n\nThis will delete the calendar event for ${date}.`;
+    if (!confirm(confirmMsg)) return;
+
     const removeBtn = rowEl.querySelector('.synced-remove') as HTMLButtonElement;
     if (removeBtn) {
       removeBtn.disabled = true;
-      removeBtn.textContent = '...';
+      removeBtn.textContent = 'Removing...';
     }
 
     try {
@@ -807,33 +917,55 @@ export function initSyncUI(elements: SyncUIElements) {
       });
 
       if (response.success) {
-        rowEl.remove();
-        // Check if the parent month group is now empty
-        const monthEntries = rowEl.closest('.month-entries');
-        if (monthEntries && monthEntries.children.length === 0) {
-          const monthGroup = monthEntries.closest('.month-group');
-          if (monthGroup) monthGroup.remove();
-        }
-        // Check if list is now empty
-        if (syncedEventsList.querySelectorAll('.synced-row').length === 0) {
-          syncedEventsList.innerHTML = '<span class="synced-empty">No synced events.</span>';
-          unsyncAllBtn.classList.add('hidden');
-        }
+        // Animate removal
+        rowEl.classList.add('removing');
+        setTimeout(() => {
+          const monthEntries = rowEl.closest('.month-entries');
+          const monthGroup = monthEntries?.closest('.month-group');
+          rowEl.remove();
+          if (monthEntries && monthEntries.children.length === 0 && monthGroup) {
+            monthGroup.remove();
+          }
+          if (syncedEventsList.querySelectorAll('.synced-row').length === 0) {
+            syncedEventsList.innerHTML = '<span class="synced-empty">No synced events.</span>';
+            unsyncAllBtn.classList.add('hidden');
+          }
+          const remaining = syncedEventsList.querySelectorAll('.synced-row').length;
+          updateSyncedEventsLabel(remaining);
+        }, 300);
       } else {
         if (removeBtn) {
           removeBtn.disabled = false;
           removeBtn.textContent = 'Remove';
         }
+        const errorEl = document.createElement('span');
+        errorEl.style.color = '#cf222e';
+        errorEl.style.fontSize = '11px';
+        errorEl.style.marginLeft = '4px';
+        errorEl.textContent = 'Could not remove';
+        rowEl.appendChild(errorEl);
+        setTimeout(() => errorEl.remove(), 3000);
       }
     } catch {
       if (removeBtn) {
         removeBtn.disabled = false;
         removeBtn.textContent = 'Remove';
       }
+      const errorEl = document.createElement('span');
+      errorEl.style.color = '#cf222e';
+      errorEl.style.fontSize = '11px';
+      errorEl.style.marginLeft = '4px';
+      errorEl.textContent = 'Could not remove';
+      rowEl.appendChild(errorEl);
+      setTimeout(() => errorEl.remove(), 3000);
     }
   }
 
   unsyncAllBtn.addEventListener('click', async () => {
+    const count = syncedEventsList.querySelectorAll('.synced-row').length;
+    const confirmMsg = `Remove all synced events?\n\nThis will delete ${count} event${count === 1 ? '' : 's'} from your Google Calendar. This cannot be undone.`;
+    if (!confirm(confirmMsg)) return;
+
     unsyncAllBtn.disabled = true;
     unsyncAllBtn.textContent = 'Removing...';
 
@@ -845,16 +977,227 @@ export function initSyncUI(elements: SyncUIElements) {
       if (response.success) {
         syncedEventsList.innerHTML = '<span class="synced-empty">No synced events.</span>';
         unsyncAllBtn.classList.add('hidden');
+        updateSyncedEventsLabel(0);
+      } else {
+        unsyncAllBtn.textContent = 'Failed to remove';
+        setTimeout(() => {
+          unsyncAllBtn.textContent = 'Remove all synced events';
+        }, 2000);
       }
     } catch {
-      // ignore
+      unsyncAllBtn.textContent = 'Failed to remove';
+      setTimeout(() => {
+        unsyncAllBtn.textContent = 'Remove all synced events';
+      }, 2000);
     } finally {
       unsyncAllBtn.disabled = false;
-      unsyncAllBtn.textContent = 'Remove all synced events';
     }
   });
 
-  // --- Communicate with background ---
+  // --- Main status rendering ---
+
+  // Track last known preview for completion details
+  let lastPreview: SyncPreview | null = null;
+
+  function renderStatus(data: SyncStatusResponse) {
+    // Track preview for post-sync details
+    if (data.preview) {
+      lastPreview = data.preview;
+    }
+
+    switch (data.status) {
+      case 'previewing': {
+        // Show progress, hide everything else
+        hideMainForSync();
+        syncNowBtn.disabled = true;
+        showSpinner(syncNowBtn, true);
+        syncNowBtnText.textContent = 'Checking...';
+        previewLink.parentElement?.classList.add('hidden');
+        progressArea.classList.remove('hidden');
+        renderProgress(null, data.phaseMessage ?? 'Checking Workday...');
+        break;
+      }
+
+      case 'syncing':
+      case 'awaiting-sso': {
+        hideMainForSync();
+        syncNowBtn.disabled = true;
+        showSpinner(syncNowBtn, true);
+        syncNowBtnText.textContent = 'Syncing...';
+        previewLink.parentElement?.classList.add('hidden');
+        progressArea.classList.remove('hidden');
+
+        const message =
+          data.status === 'awaiting-sso'
+            ? (data.phaseMessage ?? 'Please sign in to Workday to continue')
+            : (data.phaseMessage ?? 'Syncing your PTO...');
+        renderProgress(data.progress, message);
+        break;
+      }
+
+      case 'completed': {
+        // Reset button
+        syncNowBtn.disabled = false;
+        showSpinner(syncNowBtn, false);
+        syncNowBtnText.textContent = 'Sync Now';
+        progressArea.classList.add('hidden');
+        previewArea.classList.add('hidden');
+        previewLink.parentElement?.classList.remove('hidden');
+
+        // Show completion card
+        renderCompletionCard(data.lastResult);
+
+        // Show status summary
+        renderStatusSummary(data.lastResult);
+
+        // Show completion details if we have preview data
+        if (lastPreview && lastPreview.entries.length > 0) {
+          completionDetailsToggle.classList.remove('hidden');
+          renderCompletionDetails(lastPreview);
+        } else {
+          completionDetailsToggle.classList.add('hidden');
+        }
+
+        // Show errors if any
+        if (data.lastResult?.errors && data.lastResult.errors.length > 0) {
+          showErrorBanner(null, data.lastResult);
+        }
+
+        // Load updated activity history and synced events
+        loadActivityHistory();
+        loadAutoSyncStatus();
+
+        // Show synced section
+        syncedSection.classList.remove('hidden');
+
+        stopPolling();
+        break;
+      }
+
+      case 'failed': {
+        syncNowBtn.disabled = false;
+        showSpinner(syncNowBtn, false);
+        syncNowBtnText.textContent = 'Sync Now';
+        progressArea.classList.add('hidden');
+        previewArea.classList.add('hidden');
+        previewLink.parentElement?.classList.remove('hidden');
+        completionCard.classList.add('hidden');
+
+        // Show error
+        showErrorBanner(data.error, null);
+
+        // Show status if we have last result
+        if (data.lastResult) {
+          renderStatusSummary(data.lastResult);
+        } else {
+          statusSummary.classList.add('hidden');
+        }
+
+        stopPolling();
+        break;
+      }
+
+      case 'idle': {
+        syncNowBtn.disabled = false;
+        showSpinner(syncNowBtn, false);
+        syncNowBtnText.textContent = 'Sync Now';
+        progressArea.classList.add('hidden');
+
+        if (inPreviewMode && data.preview) {
+          // We're in preview mode and data arrived
+          renderPreviewInArea(data.preview);
+          previewArea.classList.remove('hidden');
+          hideMainForPreview();
+        } else {
+          previewArea.classList.add('hidden');
+          previewLink.parentElement?.classList.remove('hidden');
+        }
+
+        // Show status summary
+        if (data.lastResult) {
+          renderStatusSummary(data.lastResult);
+          welcomeCard.classList.add('hidden');
+        }
+
+        // Show welcome if never synced and no preview
+        if (!data.lastResult && !data.preview) {
+          welcomeCard.classList.remove('hidden');
+          statusSummary.classList.add('hidden');
+        } else {
+          welcomeCard.classList.add('hidden');
+        }
+
+        stopPolling();
+        break;
+      }
+    }
+  }
+
+  // --- Actions ---
+
+  async function startSync() {
+    syncNowBtn.disabled = true;
+    showSpinner(syncNowBtn, true);
+    syncNowBtnText.textContent = 'Syncing...';
+    hideMainForSync();
+    progressArea.classList.remove('hidden');
+    progressBar.style.width = '0%';
+    progressBar.classList.add('indeterminate');
+    progressPhase.textContent = 'Connecting to Workday...';
+    previewLink.parentElement?.classList.add('hidden');
+
+    try {
+      await browser.runtime.sendMessage({ type: 'START_SYNC' });
+      startPolling();
+    } catch {
+      syncNowBtn.disabled = false;
+      showSpinner(syncNowBtn, false);
+      syncNowBtnText.textContent = 'Sync Now';
+      progressArea.classList.add('hidden');
+      previewLink.parentElement?.classList.remove('hidden');
+    }
+  }
+
+  async function startPreview() {
+    inPreviewMode = true;
+    hideMainForPreview();
+    previewArea.classList.remove('hidden');
+    previewSummary.innerHTML = '<div class="summary-message">Checking Workday for changes...</div>';
+    previewTable.innerHTML = '';
+    previewApplyBtn.classList.add('hidden');
+
+    // Show progress in preview area
+    progressArea.classList.remove('hidden');
+    progressBar.style.width = '0%';
+    progressBar.classList.add('indeterminate');
+    progressPhase.textContent = 'Connecting to Workday...';
+
+    try {
+      await browser.runtime.sendMessage({ type: 'PREVIEW_SYNC' });
+      startPolling();
+    } catch {
+      inPreviewMode = false;
+      previewArea.classList.add('hidden');
+      progressArea.classList.add('hidden');
+      showMainView();
+    }
+  }
+
+  async function applyPreview() {
+    inPreviewMode = false;
+    previewArea.classList.add('hidden');
+    showMainView();
+
+    // Now start sync
+    await startSync();
+  }
+
+  // --- Event listeners ---
+  syncNowBtn.addEventListener('click', startSync);
+  previewLink.addEventListener('click', startPreview);
+  previewApplyBtn.addEventListener('click', applyPreview);
+
+  // --- Polling ---
 
   async function pollStatus() {
     try {
@@ -867,56 +1210,23 @@ export function initSyncUI(elements: SyncUIElements) {
     }
   }
 
-  async function startPreview() {
-    checkBtn.disabled = true;
-    showSpinner(checkBtn, true);
-    checkBtnText.textContent = 'Checking Workday...';
-    logArea.innerHTML = '';
-    welcomeCard.classList.add('hidden');
-    clearBanners();
-    previewArea.classList.add('hidden');
-    syncBtn.classList.add('hidden');
-    syncStats.classList.add('hidden');
-
+  // --- Load synced events count for the label ---
+  async function loadSyncedEventsCount() {
     try {
-      await browser.runtime.sendMessage({ type: 'PREVIEW_SYNC' });
-      startPolling();
+      const response: { success: boolean; entries?: SyncedEventEntry[] } =
+        await browser.runtime.sendMessage({ type: 'GET_SYNCED_EVENTS' });
+      if (response.success && response.entries) {
+        updateSyncedEventsLabel(response.entries.length);
+        if (response.entries.length > 0) {
+          syncedSection.classList.remove('hidden');
+        }
+      }
     } catch {
-      checkBtn.disabled = false;
-      showSpinner(checkBtn, false);
-      checkBtnText.textContent = hasShownPreview ? 'Refresh preview' : 'Check Workday';
+      // ignore
     }
   }
 
-  async function startSync() {
-    syncBtn.disabled = true;
-    showSpinner(syncBtn, true);
-    syncBtnText.textContent = 'Syncing...';
-    checkBtn.disabled = true;
-    logArea.innerHTML = '';
-    clearBanners();
-    syncStats.classList.add('hidden');
-    progressArea.classList.remove('hidden');
-    progressBar.style.width = '0%';
-    progressText.textContent = 'Starting sync...';
-
-    try {
-      await browser.runtime.sendMessage({ type: 'START_SYNC' });
-      startPolling();
-    } catch {
-      syncBtn.disabled = false;
-      showSpinner(syncBtn, false);
-      syncBtnText.textContent = 'Sync to Calendar';
-      checkBtn.disabled = false;
-      progressArea.classList.add('hidden');
-    }
-  }
-
-  // --- Event listeners ---
-  checkBtn.addEventListener('click', startPreview);
-  syncBtn.addEventListener('click', startSync);
-
-  // --- Init: fetch current state on open ---
+  // --- Init ---
   async function initStatus() {
     try {
       const response: SyncStatusResponse = await browser.runtime.sendMessage({
@@ -930,6 +1240,11 @@ export function initSyncUI(elements: SyncUIElements) {
       ) {
         startPolling();
       }
+
+      // Load auxiliary data
+      loadActivityHistory();
+      loadAutoSyncStatus();
+      loadSyncedEventsCount();
     } catch {
       // Background may not be ready yet — show welcome state
       welcomeCard.classList.remove('hidden');
