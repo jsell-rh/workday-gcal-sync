@@ -1,6 +1,14 @@
 import type { SyncResult } from '../model/sync-result';
 
 /**
+ * A single synced entry with its date and calendar event ID.
+ */
+export interface SyncedEntry {
+  date: string;
+  eventId: string;
+}
+
+/**
  * Port: Persistent storage for sync state.
  * Implemented by adapters like ChromeStorageAdapter.
  */
@@ -24,6 +32,11 @@ export interface SyncStateStore {
    * Removes a date from the synced set.
    */
   removeSynced(date: string): Promise<void>;
+
+  /**
+   * Returns all synced entries with their dates and event IDs.
+   */
+  getAllSyncedEntries(): Promise<SyncedEntry[]>;
 
   /**
    * Returns the last sync result.

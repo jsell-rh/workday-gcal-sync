@@ -34,6 +34,9 @@ function createMockSyncStateStore(
     getEventId: vi.fn(async (date: string) => eventIds[date] ?? null),
     markSynced: vi.fn(async () => {}),
     removeSynced: vi.fn(async () => {}),
+    getAllSyncedEntries: vi.fn(async () =>
+      Object.entries(eventIds).map(([date, eventId]) => ({ date, eventId })),
+    ),
     getLastSyncResult: vi.fn(async () => null),
     saveLastSyncResult: vi.fn(async () => {}),
     ...overrides,

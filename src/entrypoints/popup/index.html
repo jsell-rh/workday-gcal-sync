@@ -85,7 +85,7 @@
         <strong>Welcome to PTO Sync!</strong> This extension reads your PTO entries from Workday and
         creates events on your Google Calendar.
       </p>
-      <p>Click the gear icon above to configure your settings, then hit <strong>Sync</strong>.</p>
+      <p>Click <strong>Check Workday</strong> to preview your PTO entries before syncing.</p>
     </div>
 
     <div id="last-sync" class="status-card">
@@ -120,7 +120,7 @@
     </div>
 
     <div id="error-banner" class="error-banner hidden" role="alert">
-      <div class="error-banner-title">Sync encountered errors</div>
+      <div class="error-banner-title">Something went wrong</div>
       <div id="error-banner-message" class="error-banner-message"></div>
     </div>
 
@@ -129,9 +129,45 @@
       <span id="success-message" class="success-message"></span>
     </div>
 
-    <button id="sync-btn" class="primary" aria-label="Sync PTO entries to Google Calendar">
-      <span id="sync-btn-text">Sync PTO Now</span>
+    <!-- Preview area -->
+    <div id="preview-area" class="preview-area hidden">
+      <div id="preview-summary" class="preview-summary"></div>
+      <div id="preview-table" class="preview-table"></div>
+    </div>
+
+    <!-- Primary action: Check Workday -->
+    <button id="check-btn" class="primary" aria-label="Check Workday for PTO entries">
+      <span id="check-btn-text" class="btn-text">Check Workday</span>
     </button>
+
+    <!-- Secondary action: Sync to Calendar (hidden until preview) -->
+    <button
+      id="sync-btn"
+      class="primary sync-confirm-btn hidden"
+      aria-label="Sync PTO entries to Google Calendar"
+    >
+      <span id="sync-btn-text" class="btn-text">Sync to Calendar</span>
+    </button>
+
+    <!-- Synced Events section -->
+    <div class="synced-events-section">
+      <button
+        id="synced-events-toggle"
+        class="log-toggle"
+        aria-expanded="false"
+        aria-controls="synced-events-panel"
+        type="button"
+      >
+        <span class="log-toggle-arrow">&#9654;</span>
+        Synced Events
+      </button>
+      <div id="synced-events-panel" class="synced-events-panel hidden">
+        <div id="synced-events-list" class="synced-events-list"></div>
+        <button id="unsync-all-btn" class="unsync-all-btn hidden" type="button">
+          Remove all synced events
+        </button>
+      </div>
+    </div>
 
     <div id="log-wrapper" class="hidden">
       <button

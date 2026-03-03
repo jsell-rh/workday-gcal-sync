@@ -1,5 +1,8 @@
 // Shared UI logic for both popup and sidepanel
 
+import type { SyncPreview, SyncPreviewEntry } from '../domain/model/sync-preview';
+import { summarizePreview } from '../domain/model/sync-preview';
+
 interface LogEntry {
   timestamp: string;
   message: string;
@@ -7,7 +10,7 @@ interface LogEntry {
 }
 
 interface SyncStatusResponse {
-  status: 'idle' | 'syncing' | 'awaiting-sso' | 'completed' | 'failed';
+  status: 'idle' | 'previewing' | 'syncing' | 'awaiting-sso' | 'completed' | 'failed';
   log: LogEntry[];
   lastResult: {
     syncedAt: string;
@@ -21,9 +24,17 @@ interface SyncStatusResponse {
     current: number;
     total: number;
   } | null;
+  preview: SyncPreview | null;
+}
+
+interface SyncedEventEntry {
+  date: string;
+  eventId: string;
 }
 
 export interface SyncUIElements {
+  checkBtn: HTMLButtonElement;
+  checkBtnText: HTMLElement;
   syncBtn: HTMLButtonElement;
   syncBtnText: HTMLElement;
   lastSyncValue: HTMLElement;
@@ -45,6 +56,13 @@ export interface SyncUIElements {
   successBanner: HTMLElement;
   successMessage: HTMLElement;
   welcomeCard: HTMLElement;
+  previewArea: HTMLElement;
+  previewSummary: HTMLElement;
+  previewTable: HTMLElement;
+  syncedEventsToggle: HTMLButtonElement;
+  syncedEventsPanel: HTMLElement;
+  syncedEventsList: HTMLElement;
+  unsyncAllBtn: HTMLButtonElement;
 }
 
 /** Clean up raw error messages for display */
@@ -61,8 +79,48 @@ function humanizeError(raw: string): string {
     .trim();
 }
 
+function formatDate(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function shortType(type: string): string {
+  if (type.toLowerCase().includes('paid time off') || type.toLowerCase().includes('pto'))
+    return 'PTO';
+  if (type.toLowerCase().includes('floating holiday')) return 'Floating Holiday';
+  return type;
+}
+
+function actionBadgeClass(action: SyncPreviewEntry['action']): string {
+  switch (action) {
+    case 'create':
+      return 'badge-create';
+    case 'skip':
+      return 'badge-skip';
+    case 'delete':
+      return 'badge-delete';
+    case 'resync':
+      return 'badge-resync';
+  }
+}
+
+function actionLabel(action: SyncPreviewEntry['action']): string {
+  switch (action) {
+    case 'create':
+      return 'New';
+    case 'skip':
+      return 'On calendar';
+    case 'delete':
+      return 'Remove';
+    case 'resync':
+      return 'Re-sync';
+  }
+}
+
 export function initSyncUI(elements: SyncUIElements) {
   const {
+    checkBtn,
+    checkBtnText,
     syncBtn,
     syncBtnText,
     lastSyncValue,
@@ -84,9 +142,17 @@ export function initSyncUI(elements: SyncUIElements) {
     successBanner,
     successMessage,
     welcomeCard,
+    previewArea,
+    previewSummary,
+    previewTable,
+    syncedEventsToggle,
+    syncedEventsPanel,
+    syncedEventsList,
+    unsyncAllBtn,
   } = elements;
 
   let logDetailsOpen = false;
+  let syncedEventsOpen = false;
 
   // --- Log toggle ---
   logToggle.addEventListener('click', () => {
@@ -94,6 +160,16 @@ export function initSyncUI(elements: SyncUIElements) {
     logArea.classList.toggle('hidden', !logDetailsOpen);
     logToggle.setAttribute('aria-expanded', String(logDetailsOpen));
     logToggleArrow.classList.toggle('open', logDetailsOpen);
+  });
+
+  // --- Synced events toggle ---
+  syncedEventsToggle.addEventListener('click', () => {
+    syncedEventsOpen = !syncedEventsOpen;
+    syncedEventsPanel.classList.toggle('hidden', !syncedEventsOpen);
+    syncedEventsToggle.setAttribute('aria-expanded', String(syncedEventsOpen));
+    if (syncedEventsOpen) {
+      loadSyncedEvents();
+    }
   });
 
   // --- Polling ---
@@ -113,13 +189,18 @@ export function initSyncUI(elements: SyncUIElements) {
 
   // --- Render helpers ---
 
-  function showSpinner(show: boolean) {
-    const existingSpinner = syncBtn.querySelector('.btn-spinner');
+  function showSpinner(btn: HTMLButtonElement, show: boolean) {
+    const existingSpinner = btn.querySelector('.btn-spinner');
+    const textEl = btn.querySelector('.btn-text');
     if (show && !existingSpinner) {
       const spinner = document.createElement('span');
       spinner.className = 'btn-spinner';
       spinner.setAttribute('aria-hidden', 'true');
-      syncBtn.insertBefore(spinner, syncBtnText);
+      if (textEl) {
+        btn.insertBefore(spinner, textEl);
+      } else {
+        btn.appendChild(spinner);
+      }
     } else if (!show && existingSpinner) {
       existingSpinner.remove();
     }
@@ -209,26 +290,111 @@ export function initSyncUI(elements: SyncUIElements) {
     errorBanner.classList.add('hidden');
   }
 
+  function renderPreview(preview: SyncPreview | null) {
+    if (!preview || preview.entries.length === 0) {
+      previewArea.classList.add('hidden');
+      syncBtn.classList.add('hidden');
+      return;
+    }
+
+    previewArea.classList.remove('hidden');
+
+    // Render summary
+    const summary = summarizePreview(preview);
+    const summaryParts: string[] = [];
+    if (summary.creates > 0)
+      summaryParts.push(
+        `<span class="summary-create">${summary.creates} new event${summary.creates === 1 ? '' : 's'} will be created</span>`,
+      );
+    if (summary.skips > 0)
+      summaryParts.push(
+        `<span class="summary-skip">${summary.skips} already on your calendar</span>`,
+      );
+    if (summary.deletes > 0)
+      summaryParts.push(
+        `<span class="summary-delete">${summary.deletes} cancelled, will be removed</span>`,
+      );
+    if (summary.resyncs > 0)
+      summaryParts.push(
+        `<span class="summary-resync">${summary.resyncs} deleted, will be re-created</span>`,
+      );
+    previewSummary.innerHTML = summaryParts.join('<br>');
+
+    // Render table
+    previewTable.innerHTML = '';
+    for (const entry of preview.entries) {
+      const row = document.createElement('div');
+      row.className = `preview-row preview-row-${entry.action}`;
+
+      row.innerHTML = `
+        <div class="preview-date">
+          <span class="preview-date-text">${formatDate(entry.date)}</span>
+          <span class="preview-dow">${entry.dayOfWeek}</span>
+        </div>
+        <div class="preview-details">
+          <span class="preview-type">${shortType(entry.type)}</span>
+          <span class="preview-hours">${Math.abs(entry.hours)}h</span>
+          <span class="preview-status">${entry.status}</span>
+        </div>
+        <div class="preview-action">
+          <span class="action-badge ${actionBadgeClass(entry.action)}">${actionLabel(entry.action)}</span>
+        </div>
+      `;
+
+      previewTable.appendChild(row);
+    }
+
+    // Show sync button if there are actionable entries
+    const hasActions = summary.creates > 0 || summary.deletes > 0 || summary.resyncs > 0;
+    if (hasActions) {
+      syncBtn.classList.remove('hidden');
+      syncBtn.disabled = false;
+      syncBtnText.textContent = 'Sync to Calendar';
+    } else {
+      // All entries are skips — calendar is up to date
+      syncBtn.classList.add('hidden');
+      // Show a subtle success state
+      successMessage.textContent = 'Your calendar is up to date';
+      successBanner.classList.remove('hidden');
+    }
+  }
+
   function renderStatus(data: SyncStatusResponse) {
     renderLog(data.log);
 
     switch (data.status) {
-      case 'syncing':
-      case 'awaiting-sso':
-        syncBtn.disabled = true;
-        showSpinner(true);
-        syncBtnText.textContent =
-          data.status === 'awaiting-sso' ? 'Waiting for sign-in...' : 'Syncing...';
+      case 'previewing':
+        checkBtn.disabled = true;
+        showSpinner(checkBtn, true);
+        checkBtnText.textContent = 'Checking Workday...';
+        syncBtn.classList.add('hidden');
         welcomeCard.classList.add('hidden');
         clearBanners();
+        previewArea.classList.add('hidden');
+        break;
+
+      case 'syncing':
+      case 'awaiting-sso':
+        checkBtn.disabled = true;
+        showSpinner(checkBtn, true);
+        checkBtnText.textContent =
+          data.status === 'awaiting-sso' ? 'Waiting for sign-in...' : 'Syncing...';
+        syncBtn.classList.add('hidden');
+        syncBtn.disabled = true;
+        welcomeCard.classList.add('hidden');
+        clearBanners();
+        previewArea.classList.add('hidden');
         renderProgress(data.progress);
         break;
 
       case 'completed':
+        checkBtn.disabled = false;
+        showSpinner(checkBtn, false);
+        checkBtnText.textContent = 'Check Workday';
+        syncBtn.classList.add('hidden');
         syncBtn.disabled = false;
-        showSpinner(false);
-        syncBtnText.textContent = 'Sync PTO Now';
         progressArea.classList.add('hidden');
+        previewArea.classList.add('hidden');
         renderResult(data.lastResult);
         showSuccessBanner(data.lastResult);
         if (data.lastResult?.errors && data.lastResult.errors.length > 0) {
@@ -238,30 +404,154 @@ export function initSyncUI(elements: SyncUIElements) {
         break;
 
       case 'failed':
-        syncBtn.disabled = false;
-        showSpinner(false);
-        syncBtnText.textContent = 'Sync PTO Now';
+        checkBtn.disabled = false;
+        showSpinner(checkBtn, false);
+        checkBtnText.textContent = 'Check Workday';
+        syncBtn.classList.add('hidden');
         progressArea.classList.add('hidden');
-        lastSyncValue.textContent = 'Failed';
-        lastSyncValue.className = 'status-value error';
+        previewArea.classList.add('hidden');
+        lastSyncValue.textContent = data.lastResult
+          ? new Date(data.lastResult.syncedAt).toLocaleString()
+          : 'Failed';
+        lastSyncValue.className = data.lastResult ? 'status-value success' : 'status-value error';
         showErrorBanner(null, data.error);
         stopPolling();
         break;
 
       case 'idle':
-        syncBtn.disabled = false;
-        showSpinner(false);
-        syncBtnText.textContent = 'Sync PTO Now';
+        checkBtn.disabled = false;
+        showSpinner(checkBtn, false);
+        checkBtnText.textContent = 'Check Workday';
         progressArea.classList.add('hidden');
+
+        if (data.preview) {
+          renderPreview(data.preview);
+        } else {
+          previewArea.classList.add('hidden');
+          syncBtn.classList.add('hidden');
+        }
+
         renderResult(data.lastResult);
-        // Show welcome if never synced
-        if (!data.lastResult) {
+        // Show welcome if never synced and no preview
+        if (!data.lastResult && !data.preview) {
           welcomeCard.classList.remove('hidden');
+        } else {
+          welcomeCard.classList.add('hidden');
         }
         stopPolling();
         break;
     }
   }
+
+  // --- Synced events ---
+
+  async function loadSyncedEvents() {
+    syncedEventsList.innerHTML = '<span class="synced-loading">Loading synced events...</span>';
+    try {
+      const response: { success: boolean; entries?: SyncedEventEntry[]; error?: string } =
+        await browser.runtime.sendMessage({ type: 'GET_SYNCED_EVENTS' });
+
+      if (response.success && response.entries) {
+        renderSyncedEvents(response.entries);
+      } else {
+        syncedEventsList.innerHTML =
+          '<span class="synced-empty">Could not load synced events.</span>';
+      }
+    } catch {
+      syncedEventsList.innerHTML =
+        '<span class="synced-empty">Could not load synced events.</span>';
+    }
+  }
+
+  function renderSyncedEvents(entries: SyncedEventEntry[]) {
+    syncedEventsList.innerHTML = '';
+    if (entries.length === 0) {
+      syncedEventsList.innerHTML = '<span class="synced-empty">No synced events yet.</span>';
+      unsyncAllBtn.classList.add('hidden');
+      return;
+    }
+
+    unsyncAllBtn.classList.remove('hidden');
+
+    for (const entry of entries) {
+      const row = document.createElement('div');
+      row.className = 'synced-row';
+
+      const dateEl = document.createElement('span');
+      dateEl.className = 'synced-date';
+      dateEl.textContent = formatDate(entry.date);
+
+      const idHint = document.createElement('span');
+      idHint.className = 'synced-id';
+      idHint.textContent = entry.eventId === 'existing' ? '(pre-existing)' : '';
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'synced-remove';
+      removeBtn.textContent = 'Remove';
+      removeBtn.type = 'button';
+      removeBtn.addEventListener('click', () => unsyncEvent(entry.date, row));
+
+      row.appendChild(dateEl);
+      row.appendChild(idHint);
+      row.appendChild(removeBtn);
+      syncedEventsList.appendChild(row);
+    }
+  }
+
+  async function unsyncEvent(date: string, rowEl: HTMLElement) {
+    const removeBtn = rowEl.querySelector('.synced-remove') as HTMLButtonElement;
+    if (removeBtn) {
+      removeBtn.disabled = true;
+      removeBtn.textContent = '...';
+    }
+
+    try {
+      const response: { success: boolean; error?: string } = await browser.runtime.sendMessage({
+        type: 'UNSYNC_EVENT',
+        date,
+      });
+
+      if (response.success) {
+        rowEl.remove();
+        // Check if list is now empty
+        if (syncedEventsList.children.length === 0) {
+          syncedEventsList.innerHTML = '<span class="synced-empty">No synced events.</span>';
+          unsyncAllBtn.classList.add('hidden');
+        }
+      } else {
+        if (removeBtn) {
+          removeBtn.disabled = false;
+          removeBtn.textContent = 'Remove';
+        }
+      }
+    } catch {
+      if (removeBtn) {
+        removeBtn.disabled = false;
+        removeBtn.textContent = 'Remove';
+      }
+    }
+  }
+
+  unsyncAllBtn.addEventListener('click', async () => {
+    unsyncAllBtn.disabled = true;
+    unsyncAllBtn.textContent = 'Removing...';
+
+    try {
+      const response: { success: boolean; error?: string } = await browser.runtime.sendMessage({
+        type: 'UNSYNC_ALL',
+      });
+
+      if (response.success) {
+        syncedEventsList.innerHTML = '<span class="synced-empty">No synced events.</span>';
+        unsyncAllBtn.classList.add('hidden');
+      }
+    } catch {
+      // ignore
+    } finally {
+      unsyncAllBtn.disabled = false;
+      unsyncAllBtn.textContent = 'Remove all synced events';
+    }
+  });
 
   // --- Communicate with background ---
 
@@ -276,12 +566,33 @@ export function initSyncUI(elements: SyncUIElements) {
     }
   }
 
-  async function startSync() {
-    syncBtn.disabled = true;
-    showSpinner(true);
-    syncBtnText.textContent = 'Syncing...';
+  async function startPreview() {
+    checkBtn.disabled = true;
+    showSpinner(checkBtn, true);
+    checkBtnText.textContent = 'Checking Workday...';
     logArea.innerHTML = '';
     welcomeCard.classList.add('hidden');
+    clearBanners();
+    previewArea.classList.add('hidden');
+    syncBtn.classList.add('hidden');
+    syncStats.classList.add('hidden');
+
+    try {
+      await browser.runtime.sendMessage({ type: 'PREVIEW_SYNC' });
+      startPolling();
+    } catch {
+      checkBtn.disabled = false;
+      showSpinner(checkBtn, false);
+      checkBtnText.textContent = 'Check Workday';
+    }
+  }
+
+  async function startSync() {
+    syncBtn.disabled = true;
+    showSpinner(syncBtn, true);
+    syncBtnText.textContent = 'Syncing...';
+    checkBtn.disabled = true;
+    logArea.innerHTML = '';
     clearBanners();
     syncStats.classList.add('hidden');
     progressArea.classList.remove('hidden');
@@ -293,13 +604,15 @@ export function initSyncUI(elements: SyncUIElements) {
       startPolling();
     } catch {
       syncBtn.disabled = false;
-      showSpinner(false);
-      syncBtnText.textContent = 'Sync PTO Now';
+      showSpinner(syncBtn, false);
+      syncBtnText.textContent = 'Sync to Calendar';
+      checkBtn.disabled = false;
       progressArea.classList.add('hidden');
     }
   }
 
   // --- Event listeners ---
+  checkBtn.addEventListener('click', startPreview);
   syncBtn.addEventListener('click', startSync);
 
   // --- Init: fetch current state on open ---
@@ -309,7 +622,11 @@ export function initSyncUI(elements: SyncUIElements) {
         type: 'GET_SYNC_STATUS',
       });
       renderStatus(response);
-      if (response.status === 'syncing' || response.status === 'awaiting-sso') {
+      if (
+        response.status === 'syncing' ||
+        response.status === 'awaiting-sso' ||
+        response.status === 'previewing'
+      ) {
         startPolling();
       }
     } catch {

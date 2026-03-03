@@ -90,6 +90,61 @@ describe('ChromeStorageAdapter', () => {
     });
   });
 
+  describe('getAllSyncedEntries', () => {
+    it('returns empty array when no entries are stored', async () => {
+      const adapter = createChromeStorageAdapter();
+      const entries = await adapter.getAllSyncedEntries();
+      expect(entries).toEqual([]);
+    });
+
+    it('returns all synced entries with dates and event IDs', async () => {
+      await browser.storage.local.set({
+        [STORAGE_KEYS.SYNCED_DATES]: {
+          '2025-03-15': 'event-1',
+          '2025-03-16': 'event-2',
+          '2025-03-17': 'existing',
+        },
+      });
+
+      const adapter = createChromeStorageAdapter();
+      const entries = await adapter.getAllSyncedEntries();
+      expect(entries).toHaveLength(3);
+      expect(entries).toEqual([
+        { date: '2025-03-15', eventId: 'event-1' },
+        { date: '2025-03-16', eventId: 'event-2' },
+        { date: '2025-03-17', eventId: 'existing' },
+      ]);
+    });
+
+    it('returns entries sorted by date', async () => {
+      await browser.storage.local.set({
+        [STORAGE_KEYS.SYNCED_DATES]: {
+          '2025-03-20': 'event-3',
+          '2025-03-10': 'event-1',
+          '2025-03-15': 'event-2',
+        },
+      });
+
+      const adapter = createChromeStorageAdapter();
+      const entries = await adapter.getAllSyncedEntries();
+      expect(entries.map((e) => e.date)).toEqual(['2025-03-10', '2025-03-15', '2025-03-20']);
+    });
+
+    it('reflects changes after markSynced and removeSynced', async () => {
+      const adapter = createChromeStorageAdapter();
+      await adapter.markSynced('2025-03-15', 'event-1');
+      await adapter.markSynced('2025-03-16', 'event-2');
+
+      let entries = await adapter.getAllSyncedEntries();
+      expect(entries).toHaveLength(2);
+
+      await adapter.removeSynced('2025-03-15');
+      entries = await adapter.getAllSyncedEntries();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].date).toBe('2025-03-16');
+    });
+  });
+
   describe('getLastSyncResult / saveLastSyncResult', () => {
     it('returns null when no result is stored', async () => {
       const adapter = createChromeStorageAdapter();

@@ -12,6 +12,7 @@ import type { TimeOffSource } from '../domain/ports/time-off-source';
 import type { TimeOffEntry } from '../domain/model/time-off-entry';
 import type { DomainEvent } from '../domain/events/domain-events';
 import type { SyncResult } from '../domain/model/sync-result';
+import type { SyncPreview } from '../domain/model/sync-preview';
 
 const settingsStore = createSettingsStore();
 
@@ -29,11 +30,12 @@ interface SyncProgress {
 }
 
 interface SyncState {
-  status: 'idle' | 'syncing' | 'awaiting-sso' | 'completed' | 'failed';
+  status: 'idle' | 'previewing' | 'syncing' | 'awaiting-sso' | 'completed' | 'failed';
   log: LogEntry[];
   lastResult: SyncResult | null;
   error: string | null;
   progress: SyncProgress | null;
+  preview: SyncPreview | null;
 }
 
 let syncState: SyncState = {
@@ -42,6 +44,7 @@ let syncState: SyncState = {
   lastResult: null,
   error: null,
   progress: null,
+  preview: null,
 };
 
 function appendLog(message: string, level: LogEntry['level'] = 'info') {
@@ -246,6 +249,88 @@ function getAuthToken(): Promise<string> {
   });
 }
 
+// --- Run preview ---
+
+async function runPreview() {
+  if (
+    syncState.status === 'syncing' ||
+    syncState.status === 'awaiting-sso' ||
+    syncState.status === 'previewing'
+  ) {
+    return;
+  }
+
+  syncState = {
+    status: 'previewing',
+    log: [],
+    lastResult: syncState.lastResult, // preserve last result
+    error: null,
+    progress: null,
+    preview: null,
+  };
+
+  appendLog('Checking Workday for PTO entries...');
+
+  try {
+    const settings: SyncSettings = await settingsStore.getSettings();
+    const storage = createChromeStorageAdapter();
+
+    const calendarIds =
+      settings.calendarIds && settings.calendarIds.length > 0
+        ? settings.calendarIds
+        : DEFAULT_SETTINGS.calendarIds;
+
+    let calendarTarget;
+    if (calendarIds.length === 1) {
+      calendarTarget = createGoogleCalendarAdapter(getAuthToken, {
+        calendarId: calendarIds[0],
+      });
+    } else {
+      const targets = calendarIds.map((id) =>
+        createGoogleCalendarAdapter(getAuthToken, { calendarId: id }),
+      );
+      calendarTarget = createMultiCalendarTarget(targets);
+    }
+
+    const service = createSyncService({
+      timeOffSource: createAutoTimeOffSource(
+        settings.workdayAbsenceUrl || DEFAULT_SETTINGS.workdayAbsenceUrl,
+      ),
+      calendarTarget,
+      syncStateStore: storage,
+      logger: createConsoleLogger(),
+      eventBus: createEventBus(),
+      settings,
+    });
+
+    appendLog('Scraping PTO entries and checking calendar...');
+    const preview = await service.preview();
+    syncState.preview = preview;
+    syncState.status = 'idle';
+
+    const creates = preview.entries.filter((e) => e.action === 'create').length;
+    const skips = preview.entries.filter((e) => e.action === 'skip').length;
+    const deletes = preview.entries.filter((e) => e.action === 'delete').length;
+    const resyncs = preview.entries.filter((e) => e.action === 'resync').length;
+
+    const parts: string[] = [];
+    if (creates > 0) parts.push(`${creates} new`);
+    if (skips > 0) parts.push(`${skips} already synced`);
+    if (deletes > 0) parts.push(`${deletes} to remove`);
+    if (resyncs > 0) parts.push(`${resyncs} to re-create`);
+
+    appendLog(
+      `Preview ready: ${preview.entries.length} entries found (${parts.join(', ')})`,
+      'success',
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    syncState.status = 'failed';
+    syncState.error = message;
+    appendLog(message, 'error');
+  }
+}
+
 // --- Run sync ---
 
 async function runSync() {
@@ -259,6 +344,7 @@ async function runSync() {
     lastResult: null,
     error: null,
     progress: null,
+    preview: syncState.preview, // preserve preview
   };
 
   appendLog('Starting sync...');
@@ -342,6 +428,7 @@ async function runSync() {
     const result = await storage.getLastSyncResult();
     syncState.status = 'completed';
     syncState.lastResult = result;
+    syncState.preview = null; // clear preview after successful sync
 
     if (result && result.errors.length > 0) {
       appendLog(
@@ -371,10 +458,18 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onMessage.addListener(
-    (message: { type: string; settings?: SyncSettings }, _sender, sendResponse) => {
+    (message: { type: string; settings?: SyncSettings; date?: string }, _sender, sendResponse) => {
       if (message.type === 'START_SYNC') {
         runSync().then(() => {
           // Sync finished (state already updated)
+        });
+        sendResponse({ started: true });
+        return false;
+      }
+
+      if (message.type === 'PREVIEW_SYNC') {
+        runPreview().then(() => {
+          // Preview finished (state already updated)
         });
         sendResponse({ started: true });
         return false;
@@ -387,8 +482,92 @@ export default defineBackground(() => {
           lastResult: syncState.lastResult,
           error: syncState.error,
           progress: syncState.progress,
+          preview: syncState.preview,
         });
         return false;
+      }
+
+      if (message.type === 'GET_SYNCED_EVENTS') {
+        const storage = createChromeStorageAdapter();
+        storage
+          .getAllSyncedEntries()
+          .then((entries) => sendResponse({ success: true, entries }))
+          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+
+      if (message.type === 'UNSYNC_EVENT') {
+        if (!message.date) {
+          sendResponse({ success: false, error: 'No date provided' });
+          return false;
+        }
+        const storage = createChromeStorageAdapter();
+        const calendarIds = DEFAULT_SETTINGS.calendarIds;
+        (async () => {
+          try {
+            const settings: SyncSettings = await settingsStore.getSettings();
+            const ids =
+              settings.calendarIds && settings.calendarIds.length > 0
+                ? settings.calendarIds
+                : calendarIds;
+
+            const eventId = await storage.getEventId(message.date!);
+            if (eventId && eventId !== 'existing') {
+              // Delete from all target calendars
+              for (const calId of ids) {
+                try {
+                  const target = createGoogleCalendarAdapter(getAuthToken, {
+                    calendarId: calId,
+                  });
+                  await target.deleteEvent(eventId);
+                } catch {
+                  // Event may not exist on this calendar — that's ok
+                }
+              }
+            }
+            await storage.removeSynced(message.date!);
+            sendResponse({ success: true });
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            sendResponse({ success: false, error: errMsg });
+          }
+        })();
+        return true;
+      }
+
+      if (message.type === 'UNSYNC_ALL') {
+        const storage = createChromeStorageAdapter();
+        (async () => {
+          try {
+            const settings: SyncSettings = await settingsStore.getSettings();
+            const ids =
+              settings.calendarIds && settings.calendarIds.length > 0
+                ? settings.calendarIds
+                : DEFAULT_SETTINGS.calendarIds;
+
+            const entries = await storage.getAllSyncedEntries();
+            for (const entry of entries) {
+              if (entry.eventId && entry.eventId !== 'existing') {
+                for (const calId of ids) {
+                  try {
+                    const target = createGoogleCalendarAdapter(getAuthToken, {
+                      calendarId: calId,
+                    });
+                    await target.deleteEvent(entry.eventId);
+                  } catch {
+                    // Event may not exist on this calendar
+                  }
+                }
+              }
+              await storage.removeSynced(entry.date);
+            }
+            sendResponse({ success: true, removed: entries.length });
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            sendResponse({ success: false, error: errMsg });
+          }
+        })();
+        return true;
       }
 
       if (message.type === 'GET_SETTINGS') {

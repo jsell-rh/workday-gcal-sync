@@ -470,6 +470,263 @@ button.secondary:disabled {
   background: #ffe3d9;
 }
 
+/* ===== Sync confirm button ===== */
+button.sync-confirm-btn {
+  margin-top: 8px;
+  background: #1a7f37;
+}
+
+button.sync-confirm-btn:hover {
+  background: #116329;
+}
+
+button.sync-confirm-btn:disabled {
+  background: #c7c7c7;
+  cursor: not-allowed;
+}
+
+/* ===== Preview area ===== */
+.preview-area {
+  margin-bottom: 12px;
+  animation: fadeIn 0.2s ease;
+}
+
+.preview-summary {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+}
+
+.summary-create {
+  color: #1a7f37;
+  font-weight: 500;
+}
+
+.summary-skip {
+  color: #707070;
+}
+
+.summary-delete {
+  color: #cf222e;
+  font-weight: 500;
+}
+
+.summary-resync {
+  color: #bf8700;
+  font-weight: 500;
+}
+
+.preview-table {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: #e0e0e0;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.preview-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  background: white;
+  font-size: 12px;
+}
+
+.preview-row-create {
+  background: #f0fdf4;
+}
+
+.preview-row-delete {
+  background: #fef2f2;
+}
+
+.preview-row-resync {
+  background: #fffbeb;
+}
+
+.preview-date {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.preview-date-text {
+  font-weight: 600;
+  color: #151515;
+}
+
+.preview-dow {
+  font-size: 11px;
+  color: #707070;
+}
+
+.preview-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.preview-type {
+  font-weight: 500;
+  color: #383838;
+}
+
+.preview-hours {
+  font-size: 11px;
+  color: #707070;
+}
+
+.preview-status {
+  font-size: 11px;
+  color: #707070;
+}
+
+.preview-action {
+  display: flex;
+  align-items: center;
+}
+
+/* ===== Action badges ===== */
+.action-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-create {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge-skip {
+  background: #f2f2f2;
+  color: #707070;
+}
+
+.badge-delete {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.badge-resync {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* ===== Synced Events section ===== */
+.synced-events-section {
+  margin-top: 8px;
+}
+
+.synced-events-panel {
+  margin-top: 4px;
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 8px;
+  animation: fadeIn 0.2s ease;
+}
+
+.synced-events-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.synced-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  font-size: 13px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.synced-row:last-child {
+  border-bottom: none;
+}
+
+.synced-date {
+  flex: 1;
+  font-weight: 500;
+  color: #151515;
+}
+
+.synced-id {
+  font-size: 11px;
+  color: #707070;
+}
+
+.synced-remove {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid #cf222e;
+  border-radius: 4px;
+  color: #cf222e;
+  cursor: pointer;
+  width: auto;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.synced-remove:hover {
+  background: #cf222e;
+  color: white;
+}
+
+.synced-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.unsync-all-btn {
+  margin-top: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid #cf222e;
+  border-radius: 6px;
+  color: #cf222e;
+  cursor: pointer;
+  width: 100%;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.unsync-all-btn:hover {
+  background: #cf222e;
+  color: white;
+}
+
+.unsync-all-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.synced-loading,
+.synced-empty {
+  display: block;
+  font-size: 12px;
+  color: #707070;
+  padding: 8px 0;
+  text-align: center;
+}
+
 /* ===== Utility ===== */
 .hidden {
   display: none !important;

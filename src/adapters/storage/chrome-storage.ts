@@ -1,4 +1,4 @@
-import type { SyncStateStore } from '../../domain/ports/sync-state-store';
+import type { SyncStateStore, SyncedEntry } from '../../domain/ports/sync-state-store';
 import type { SyncResult } from '../../domain/model/sync-result';
 import { type SyncSettings, DEFAULT_SETTINGS } from '../../domain/model/settings';
 
@@ -48,6 +48,14 @@ export function createChromeStorageAdapter(): SyncStateStore {
       const record: SyncedDatesRecord = result[STORAGE_KEYS.SYNCED_DATES] ?? {};
       delete record[date];
       await browser.storage.local.set({ [STORAGE_KEYS.SYNCED_DATES]: record });
+    },
+
+    async getAllSyncedEntries(): Promise<SyncedEntry[]> {
+      const result = await browser.storage.local.get(STORAGE_KEYS.SYNCED_DATES);
+      const record: SyncedDatesRecord = result[STORAGE_KEYS.SYNCED_DATES] ?? {};
+      return Object.entries(record)
+        .map(([date, eventId]) => ({ date, eventId }))
+        .sort((a, b) => a.date.localeCompare(b.date));
     },
 
     async getLastSyncResult(): Promise<SyncResult | null> {

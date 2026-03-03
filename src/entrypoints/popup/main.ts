@@ -2,6 +2,8 @@ import { initSyncUI } from '../../ui/sync-ui';
 import { initSettingsUI } from '../../ui/settings-ui';
 
 initSyncUI({
+  checkBtn: document.getElementById('check-btn') as HTMLButtonElement,
+  checkBtnText: document.getElementById('check-btn-text')!,
   syncBtn: document.getElementById('sync-btn') as HTMLButtonElement,
   syncBtnText: document.getElementById('sync-btn-text')!,
   lastSyncValue: document.getElementById('last-sync-value')!,
@@ -23,6 +25,13 @@ initSyncUI({
   successBanner: document.getElementById('success-banner')!,
   successMessage: document.getElementById('success-message')!,
   welcomeCard: document.getElementById('welcome-card')!,
+  previewArea: document.getElementById('preview-area')!,
+  previewSummary: document.getElementById('preview-summary')!,
+  previewTable: document.getElementById('preview-table')!,
+  syncedEventsToggle: document.getElementById('synced-events-toggle') as HTMLButtonElement,
+  syncedEventsPanel: document.getElementById('synced-events-panel')!,
+  syncedEventsList: document.getElementById('synced-events-list')!,
+  unsyncAllBtn: document.getElementById('unsync-all-btn') as HTMLButtonElement,
 });
 
 initSettingsUI({

@@ -3,11 +3,12 @@ import type { CalendarTarget } from '../ports/calendar-target';
 import type { SyncStateStore } from '../ports/sync-state-store';
 import type { Logger } from '../ports/logger';
 import type { EventBus } from '../events/event-bus';
-import { isSyncable, isCancellation } from '../model/time-off-entry';
+import { isSyncable, isCancellation, type TimeOffEntry } from '../model/time-off-entry';
 import { calendarEventFromTimeOff } from '../model/calendar-event';
 import { createSyncResult, type SyncError } from '../model/sync-result';
 import { createDomainEvent } from '../events/domain-events';
 import type { SyncSettings } from '../model/settings';
+import type { SyncPreview, SyncPreviewEntry } from '../model/sync-preview';
 
 export interface SyncServiceDeps {
   timeOffSource: TimeOffSource;
@@ -18,10 +19,138 @@ export interface SyncServiceDeps {
   settings?: SyncSettings;
 }
 
+/**
+ * Builds a preview from already-fetched entries without modifying any state.
+ * This is a pure read operation: it checks local sync state and the calendar
+ * to determine what action each entry would trigger.
+ */
+export async function buildPreview(
+  entries: TimeOffEntry[],
+  deps: {
+    calendarTarget: CalendarTarget;
+    syncStateStore: SyncStateStore;
+    settings?: SyncSettings;
+  },
+): Promise<SyncPreview> {
+  const { calendarTarget, syncStateStore, settings } = deps;
+  const syncedDates = await syncStateStore.getSyncedDates();
+  const previewEntries: SyncPreviewEntry[] = [];
+
+  const eventOptions = {
+    titleTemplate: settings?.titleTemplate,
+    eventVisibility: settings?.eventVisibility,
+  };
+
+  // Handle cancellations
+  const cancellations = entries.filter(isCancellation);
+  for (const cancellation of cancellations) {
+    const eventId = await syncStateStore.getEventId(cancellation.date);
+    if (eventId && eventId !== 'existing') {
+      previewEntries.push({
+        date: cancellation.date,
+        dayOfWeek: cancellation.dayOfWeek,
+        type: cancellation.type,
+        hours: cancellation.requestedHours,
+        status: cancellation.status,
+        action: 'delete',
+        actionReason: 'Cancelled in Workday, will remove from calendar',
+      });
+    } else {
+      previewEntries.push({
+        date: cancellation.date,
+        dayOfWeek: cancellation.dayOfWeek,
+        type: cancellation.type,
+        hours: cancellation.requestedHours,
+        status: cancellation.status,
+        action: 'skip',
+        actionReason: 'Cancelled (not on calendar)',
+      });
+    }
+  }
+
+  // Handle syncable entries
+  const syncable = entries.filter(isSyncable);
+  for (const entry of syncable) {
+    if (syncedDates.has(entry.date)) {
+      const storedEventId = await syncStateStore.getEventId(entry.date);
+      if (storedEventId && storedEventId !== 'existing') {
+        const calEvent = calendarEventFromTimeOff(entry, eventOptions);
+        const stillExists = await calendarTarget.eventExists(calEvent.startDate, calEvent.summary);
+        if (!stillExists) {
+          previewEntries.push({
+            date: entry.date,
+            dayOfWeek: entry.dayOfWeek,
+            type: entry.type,
+            hours: entry.requestedHours,
+            status: entry.status,
+            action: 'resync',
+            actionReason: 'Deleted from calendar, will re-create',
+          });
+        } else {
+          previewEntries.push({
+            date: entry.date,
+            dayOfWeek: entry.dayOfWeek,
+            type: entry.type,
+            hours: entry.requestedHours,
+            status: entry.status,
+            action: 'skip',
+            actionReason: 'Already on calendar',
+          });
+        }
+      } else {
+        previewEntries.push({
+          date: entry.date,
+          dayOfWeek: entry.dayOfWeek,
+          type: entry.type,
+          hours: entry.requestedHours,
+          status: entry.status,
+          action: 'skip',
+          actionReason: 'Already on calendar',
+        });
+      }
+    } else {
+      // Check if it exists on calendar but not in local state
+      const calEvent = calendarEventFromTimeOff(entry, eventOptions);
+      const exists = await calendarTarget.eventExists(calEvent.startDate, calEvent.summary);
+      if (exists) {
+        previewEntries.push({
+          date: entry.date,
+          dayOfWeek: entry.dayOfWeek,
+          type: entry.type,
+          hours: entry.requestedHours,
+          status: entry.status,
+          action: 'skip',
+          actionReason: 'Already on calendar',
+        });
+      } else {
+        previewEntries.push({
+          date: entry.date,
+          dayOfWeek: entry.dayOfWeek,
+          type: entry.type,
+          hours: entry.requestedHours,
+          status: entry.status,
+          action: 'create',
+          actionReason: 'New entry',
+        });
+      }
+    }
+  }
+
+  // Sort by date
+  previewEntries.sort((a, b) => a.date.localeCompare(b.date));
+
+  return { entries: previewEntries };
+}
+
 export function createSyncService(deps: SyncServiceDeps) {
   const { timeOffSource, calendarTarget, syncStateStore, logger, eventBus, settings } = deps;
 
   return {
+    async preview(): Promise<SyncPreview> {
+      const entries = await timeOffSource.getEntries();
+      return buildPreview(entries, { calendarTarget, syncStateStore, settings });
+    },
+
     async sync(): Promise<void> {
       eventBus.publish(createDomainEvent('SyncStarted', { source: 'workday' }));
       logger.info('Sync started');
