@@ -227,63 +227,58 @@ export function createSyncService(deps: SyncServiceDeps) {
             total: syncable.length,
           });
 
+          let isResync = false;
+
           if (syncedDates.has(entry.date)) {
-            // Verify the event still exists on the calendar
-            const storedEventId = await syncStateStore.getEventId(entry.date);
-            if (storedEventId && storedEventId !== 'existing') {
-              const calEvent = calendarEventFromTimeOff(entry, eventOptions);
-              const stillExists = await calendarTarget.eventExists(
-                calEvent.startDate,
-                calEvent.summary,
-              );
-              if (!stillExists) {
-                // Event was deleted from calendar — remove from local state and re-sync
-                await syncStateStore.removeSynced(entry.date);
-                eventBus.publish(
-                  createDomainEvent('EntryResynced', {
-                    date: entry.date,
-                    reason: 'event was deleted from calendar',
-                  }),
-                );
-                logger.info('Event deleted from calendar, re-syncing', { date: entry.date });
-                resynced++;
-                // Fall through to create the event again
-              } else {
-                eventBus.publish(
-                  createDomainEvent('EntrySkipped', {
-                    date: entry.date,
-                    reason: 'already on calendar (verified)',
-                  }),
-                );
-                skipped++;
-                continue;
-              }
-            } else {
+            // Always verify the event still exists on the calendar
+            const calEvent = calendarEventFromTimeOff(entry, eventOptions);
+            const stillExists = await calendarTarget.eventExists(
+              calEvent.startDate,
+              calEvent.summary,
+            );
+            if (stillExists) {
               eventBus.publish(
                 createDomainEvent('EntrySkipped', {
                   date: entry.date,
-                  reason: 'already synced (from local state)',
+                  reason: 'already on calendar (verified)',
                 }),
               );
               skipped++;
               continue;
+            } else {
+              // Event was deleted from calendar — remove from local state and re-sync
+              await syncStateStore.removeSynced(entry.date);
+              eventBus.publish(
+                createDomainEvent('EntryResynced', {
+                  date: entry.date,
+                  reason: 'event was deleted from calendar',
+                }),
+              );
+              logger.info('Event deleted from calendar, re-syncing', { date: entry.date });
+              isResync = true;
+              resynced++;
+              // Fall through to create the event again
             }
           }
 
           try {
             const calEvent = calendarEventFromTimeOff(entry, eventOptions);
-            const exists = await calendarTarget.eventExists(calEvent.startDate, calEvent.summary);
 
-            if (exists) {
-              eventBus.publish(
-                createDomainEvent('EntrySkipped', {
-                  date: entry.date,
-                  reason: 'already exists in calendar',
-                }),
-              );
-              await syncStateStore.markSynced(entry.date, 'existing');
-              skipped++;
-              continue;
+            // Skip the duplicate check if we just confirmed the event is gone (re-sync)
+            if (!isResync) {
+              const exists = await calendarTarget.eventExists(calEvent.startDate, calEvent.summary);
+
+              if (exists) {
+                eventBus.publish(
+                  createDomainEvent('EntrySkipped', {
+                    date: entry.date,
+                    reason: 'already exists in calendar',
+                  }),
+                );
+                await syncStateStore.markSynced(entry.date, 'existing');
+                skipped++;
+                continue;
+              }
             }
 
             const eventId = await calendarTarget.createEvent(calEvent);
@@ -299,7 +294,9 @@ export function createSyncService(deps: SyncServiceDeps) {
               date: entry.date,
               summary: calEvent.summary,
             });
-            synced++;
+            if (!isResync) {
+              synced++;
+            }
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             errors.push({ entryDate: entry.date, message });

@@ -730,7 +730,8 @@ describe('SyncService', () => {
 
       const savedResult = (syncStateStore.saveLastSyncResult as ReturnType<typeof vi.fn>).mock
         .calls[0][0] as SyncResult;
-      expect(savedResult.entriesSynced).toBe(1);
+      // Re-synced entries are not double-counted in entriesSynced
+      expect(savedResult.entriesSynced).toBe(0);
       expect(savedResult.entriesResynced).toBe(1);
 
       // Should publish EntryResynced event
@@ -742,10 +743,11 @@ describe('SyncService', () => {
       }
     });
 
-    it('skips calendar verification for entries marked as "existing" in local state', async () => {
+    it('verifies "existing" entries against calendar and skips if still there', async () => {
       const entries = [makeEntry({ date: '2025-03-15' })];
       const timeOffSource = createMockTimeOffSource(entries);
       const calendarTarget = createMockCalendarTarget();
+      (calendarTarget.eventExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
       const syncStateStore = createMockSyncStateStore(new Set(['2025-03-15']), {
         '2025-03-15': 'existing',
       });
@@ -760,8 +762,8 @@ describe('SyncService', () => {
 
       await service.sync();
 
-      // 'existing' events were pre-existing, not created by us — skip verification
-      expect(calendarTarget.eventExists).not.toHaveBeenCalled();
+      // Now always verifies against calendar, even for 'existing' entries
+      expect(calendarTarget.eventExists).toHaveBeenCalled();
       expect(calendarTarget.createEvent).not.toHaveBeenCalled();
 
       const savedResult = (syncStateStore.saveLastSyncResult as ReturnType<typeof vi.fn>).mock
