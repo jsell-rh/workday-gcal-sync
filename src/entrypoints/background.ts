@@ -1020,13 +1020,36 @@ export default defineBackground(() => {
       }
 
       if (message.type === 'DETECT_WORKDAY_TABS') {
-        browser.tabs
-          .query({ url: 'https://*.myworkday.com/*' })
-          .then((tabs) => {
-            const tabInfo = tabs.map((t) => ({ url: t.url, title: t.title }));
+        (async () => {
+          try {
+            const tabs = await browser.tabs.query({ url: 'https://*.myworkday.com/*' });
+            const tabInfo = await Promise.all(
+              tabs.map(async (t) => {
+                let pageStatus = { onAbsencePage: false, needsAuth: false };
+                if (t.id !== undefined) {
+                  try {
+                    pageStatus = await browser.tabs.sendMessage(t.id, {
+                      type: 'CHECK_PAGE_STATUS',
+                    });
+                  } catch {
+                    // Content script not ready or not injected
+                  }
+                }
+                return {
+                  url: t.url,
+                  title: t.title,
+                  id: t.id,
+                  onAbsencePage: pageStatus.onAbsencePage ?? false,
+                  needsAuth: pageStatus.needsAuth ?? false,
+                };
+              }),
+            );
             sendResponse({ success: true, tabs: tabInfo });
-          })
-          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            sendResponse({ success: false, error: errMsg });
+          }
+        })();
         return true;
       }
 

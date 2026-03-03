@@ -1,6 +1,14 @@
 import type { SyncSettings } from '../domain/model/settings';
 import { DEFAULT_SETTINGS } from '../domain/model/settings';
 
+interface DetectedTab {
+  url?: string;
+  title?: string;
+  id?: number;
+  onAbsencePage: boolean;
+  needsAuth: boolean;
+}
+
 const TOTAL_STEPS = 4;
 
 export function initSetupWizard(
@@ -140,6 +148,11 @@ export function initSetupWizard(
     detectedArea.appendChild(useBtn);
     content.appendChild(detectedArea);
 
+    const pageHint = document.createElement('div');
+    pageHint.className = 'wizard-page-hint hidden';
+    pageHint.textContent = 'Look for "My Absence" or "Time Off" in the Workday menu.';
+    content.appendChild(pageHint);
+
     // Manual fallback
     const manualSection = document.createElement('div');
     manualSection.className = 'wizard-manual';
@@ -190,24 +203,40 @@ export function initSetupWizard(
       try {
         const response = await browser.runtime.sendMessage({ type: 'DETECT_WORKDAY_TABS' });
         if (response?.success && response.tabs && response.tabs.length > 0) {
-          const absenceTab = response.tabs.find(
-            (t: { url?: string }) => t.url && /myworkday\.com/.test(t.url),
+          // Prefer the tab that's on the absence page
+          const absenceTab = response.tabs.find((t: DetectedTab) => t.onAbsencePage);
+          const anyWorkdayTab = response.tabs.find(
+            (t: DetectedTab) => t.url && /myworkday\.com/.test(t.url),
           );
+
           if (absenceTab && absenceTab.url) {
+            // Found the right page!
             detectedUrl = absenceTab.url;
             statusIcon.className = 'wizard-detect-icon found';
             statusIcon.textContent = '\u2713';
-            statusText.textContent = 'Workday tab found — navigate to your absence page if needed.';
+            statusText.textContent = 'Absence page found!';
             detectedUrlEl.textContent = absenceTab.url;
             detectedArea.classList.remove('hidden');
-            // Don't stop polling — keep updating as the user navigates
+            useBtn.disabled = false;
+            pageHint.classList.add('hidden');
+          } else if (anyWorkdayTab && anyWorkdayTab.url) {
+            // Found Workday but wrong page
+            detectedUrl = anyWorkdayTab.url;
+            statusIcon.className = 'wizard-detect-icon wrong-page';
+            statusIcon.textContent = '!';
+            statusText.textContent = 'Workday tab found \u2014 navigate to your "My Absence" page.';
+            detectedUrlEl.textContent = anyWorkdayTab.url;
+            detectedArea.classList.remove('hidden');
+            useBtn.disabled = true;
+            pageHint.classList.remove('hidden');
           }
         } else {
-          // No Workday tabs open (anymore) — reset to searching state
+          // No tabs
           statusIcon.className = 'wizard-detect-icon searching';
           statusIcon.textContent = '...';
           statusText.textContent = 'Looking for open Workday tabs...';
           detectedArea.classList.add('hidden');
+          pageHint.classList.add('hidden');
           detectedUrl = '';
         }
       } catch {
