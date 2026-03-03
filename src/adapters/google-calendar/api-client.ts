@@ -26,7 +26,9 @@ function buildEventBody(event: CalendarEvent): Record<string, unknown> {
 
   const body: Record<string, unknown> = {
     summary: event.summary,
-    description: event.description,
+    // Out of Office events must not have a description field — Google Calendar
+    // rejects the request with "An out of office event must not have a description."
+    ...(isOutOfOffice ? {} : { description: event.description }),
   };
 
   if (isOutOfOffice) {

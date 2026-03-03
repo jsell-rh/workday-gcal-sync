@@ -87,8 +87,9 @@ describe('GoogleCalendarAdapter', () => {
         autoDeclineMode: 'declineAllConflictingInvitations',
       });
 
-      // Must NOT include transparency
+      // Must NOT include transparency or description
       expect(body.transparency).toBeUndefined();
+      expect(body.description).toBeUndefined();
     });
 
     it('throws on API error', async () => {
