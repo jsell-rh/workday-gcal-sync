@@ -66,60 +66,66 @@ function waitForTabLoad(tabId: number, timeoutMs = 30000): Promise<void> {
   });
 }
 
-async function waitForAbsencePage(tabId: number, timeoutMs = 20000): Promise<boolean> {
+type PageWaitResult = 'ready' | 'needs-sso' | 'timeout';
+
+async function waitForAbsencePage(
+  tabId: number,
+  options?: {
+    timeoutMs?: number;
+    redirectGraceMs?: number;
+    pollIntervalMs?: number;
+  },
+): Promise<PageWaitResult> {
+  const timeoutMs = options?.timeoutMs ?? 30000;
+  const redirectGraceMs = options?.redirectGraceMs ?? 10000;
+  const pollIntervalMs = options?.pollIntervalMs ?? 500;
+
   const startTime = Date.now();
-  const pollInterval = 500;
+  let offWorkdaySince: number | null = null;
 
   while (Date.now() - startTime < timeoutMs) {
-    // First, check the tab URL directly — no content script needed
+    // Check the tab URL directly — no content script needed
+    let tabUrl: string | undefined;
     try {
       const tab = await browser.tabs.get(tabId);
-      if (tab.url && !tab.url.includes('.myworkday.com/')) {
-        // Redirected away from Workday (SSO login page)
-        return false;
-      }
+      tabUrl = tab.url;
     } catch {
       // Tab may have been closed
-      return false;
+      return 'timeout';
     }
 
-    // Tab is on Workday domain — try asking the content script
-    try {
-      const response = await browser.tabs.sendMessage(tabId, {
-        type: 'CHECK_PAGE_STATUS',
-      });
+    const onWorkday = tabUrl != null && tabUrl.includes('.myworkday.com/');
 
-      if (response?.onAbsencePage) {
-        return true;
+    if (onWorkday) {
+      // Back on Workday — reset the redirect timer
+      offWorkdaySince = null;
+
+      // Try asking the content script if we're on the absence page
+      try {
+        const response = await browser.tabs.sendMessage(tabId, {
+          type: 'CHECK_PAGE_STATUS',
+        });
+
+        if (response?.onAbsencePage) {
+          return 'ready';
+        }
+      } catch {
+        // Content script not ready yet — page still loading/rendering
       }
-    } catch {
-      // Content script not ready yet — page still loading/rendering
+    } else {
+      // Off Workday — likely an SSO redirect
+      if (offWorkdaySince === null) {
+        offWorkdaySince = Date.now();
+      } else if (Date.now() - offWorkdaySince >= redirectGraceMs) {
+        // Been off Workday for the entire grace period — SSO login needed
+        return 'needs-sso';
+      }
     }
 
-    await new Promise((r) => setTimeout(r, pollInterval));
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
   }
 
-  return false;
-}
-
-async function waitForAbsencePageAfterSSO(tabId: number, timeoutMs = 120000): Promise<boolean> {
-  const startTime = Date.now();
-
-  // Phase 1: Wait for the tab to return to Workday domain
-  while (Date.now() - startTime < timeoutMs) {
-    try {
-      const tab = await browser.tabs.get(tabId);
-      if (tab.url && tab.url.includes('.myworkday.com/')) {
-        break; // Back on Workday — proceed to phase 2
-      }
-    } catch {
-      return false;
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-
-  // Phase 2: Wait for the absence page to render
-  return waitForAbsencePage(tabId, Math.max(timeoutMs - (Date.now() - startTime), 5000));
+  return 'timeout';
 }
 
 // --- TimeOffSource that manages tabs from the background ---
@@ -160,19 +166,23 @@ function createAutoTimeOffSource(workdayAbsenceUrl: string): TimeOffSource {
       }
 
       appendLog('Waiting for absence page to load...');
-      let pageReady = await waitForAbsencePage(tabId);
+      const result = await waitForAbsencePage(tabId);
 
-      if (!pageReady) {
+      if (result === 'ready') {
+        // Good — proceed to scrape
+      } else if (result === 'needs-sso') {
         syncState.status = 'awaiting-sso';
         appendLog('SSO login required. Opening tab for you to sign in...', 'info');
         await browser.tabs.update(tabId, { active: true });
 
-        pageReady = await waitForAbsencePageAfterSSO(tabId);
+        // Now wait for the user to complete SSO (long timeout)
+        const ssoResult = await waitForAbsencePage(tabId, {
+          timeoutMs: 120000,
+          redirectGraceMs: 120000, // Don't declare SSO needed again, we already know
+        });
 
-        if (!pageReady) {
-          throw new Error(
-            'Timed out waiting for SSO login. Please sign into Workday and try again.',
-          );
+        if (ssoResult !== 'ready') {
+          throw new Error('Timed out waiting for SSO login.');
         }
 
         appendLog('SSO login complete!', 'success');
@@ -181,6 +191,8 @@ function createAutoTimeOffSource(workdayAbsenceUrl: string): TimeOffSource {
         if (createdTab) {
           await browser.tabs.update(tabId, { active: false });
         }
+      } else {
+        throw new Error('Timed out waiting for Workday absence page to load.');
       }
 
       appendLog('Scraping PTO entries...');
