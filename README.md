@@ -2,6 +2,10 @@
 
 Browser extension that syncs time-off entries from Workday to Google Calendar.
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="PTO Sync" width="300" />
+</p>
+
 ## Install (Chrome)
 
 1. `npm install && npm run build`
