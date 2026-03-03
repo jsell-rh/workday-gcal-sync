@@ -7,6 +7,8 @@ import type { TimeOffSource } from '../../domain/ports/time-off-source';
 import type { TimeOffEntry } from '../../domain/model/time-off-entry';
 import type { DomainEvent } from '../../domain/events/domain-events';
 
+const WORKDAY_ABSENCE_URL = 'https://wd5.myworkday.com/redhat/d/task/2997$276.htmld';
+
 // --- DOM elements ---
 const syncBtn = document.getElementById('sync-btn') as HTMLButtonElement;
 const lastSyncValue = document.getElementById('last-sync-value')!;
@@ -41,39 +43,147 @@ async function loadLastSync() {
   }
 }
 
-// --- Create a TimeOffSource that messages the content script ---
-function createContentScriptSource(): TimeOffSource {
+/**
+ * Waits for a tab to finish loading (status === 'complete').
+ */
+function waitForTabLoad(tabId: number, timeoutMs = 30000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      browser.tabs.onUpdated.removeListener(listener);
+      reject(new Error('Tab load timed out'));
+    }, timeoutMs);
+
+    const listener = (updatedTabId: number, changeInfo: { status?: string }) => {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        clearTimeout(timeout);
+        browser.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+
+    browser.tabs.onUpdated.addListener(listener);
+  });
+}
+
+/**
+ * Waits for the content script to report that the absence page is ready.
+ * Polls the content script periodically since Workday renders asynchronously.
+ */
+async function waitForAbsencePage(tabId: number, timeoutMs = 20000): Promise<boolean> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const response = await browser.tabs.sendMessage(tabId, {
+        type: 'CHECK_PAGE_STATUS',
+      });
+
+      if (response?.onAbsencePage) {
+        return true;
+      }
+
+      // If we're not on the Workday domain at all, SSO redirect happened
+      if (response && !response.isWorkdayDomain) {
+        return false;
+      }
+    } catch {
+      // Content script not ready yet — tab may still be loading
+    }
+
+    // Wait before polling again
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  return false;
+}
+
+/**
+ * Creates a TimeOffSource that handles the full tab lifecycle:
+ * 1. Opens Workday in a background tab
+ * 2. If SSO is needed, brings the tab to the foreground for login
+ * 3. After login, scrapes the absence data
+ * 4. Closes the tab when done
+ */
+function createAutoTimeOffSource(
+  onLog: (msg: string, level?: 'info' | 'error' | 'success') => void,
+): TimeOffSource {
   return {
     async getEntries(): Promise<TimeOffEntry[]> {
-      // Find the active Workday tab
-      const tabs = await browser.tabs.query({
+      // First check if a Workday tab is already open on the absence page
+      const existingTabs = await browser.tabs.query({
         url: 'https://*.myworkday.com/*',
-        active: false,
       });
 
-      // Also check active tab
-      const activeTabs = await browser.tabs.query({
-        url: 'https://*.myworkday.com/*',
-        active: true,
-      });
+      let tabId: number | undefined;
+      let createdTab = false;
 
-      const allTabs = [...activeTabs, ...tabs];
+      if (existingTabs.length > 0) {
+        tabId = existingTabs[0].id;
+        onLog('Found existing Workday tab');
 
-      if (allTabs.length === 0) {
-        throw new Error('No Workday tab found. Please open your Workday "My Absence" page first.');
+        // Navigate it to the absence page if needed
+        const tab = existingTabs[0];
+        if (tab.url && !tab.url.includes('2997$276')) {
+          onLog('Navigating to My Absence page...');
+          await browser.tabs.update(tabId!, { url: WORKDAY_ABSENCE_URL });
+          await waitForTabLoad(tabId!);
+        }
+      } else {
+        // Open Workday in a background tab
+        onLog('Opening Workday in background...');
+        const tab = await browser.tabs.create({
+          url: WORKDAY_ABSENCE_URL,
+          active: false,
+        });
+        tabId = tab.id;
+        createdTab = true;
+        await waitForTabLoad(tabId!);
       }
 
-      const tabId = allTabs[0].id;
       if (tabId === undefined) {
-        throw new Error('Cannot access Workday tab.');
+        throw new Error('Failed to create Workday tab');
       }
 
+      // Wait for the absence page to be ready
+      onLog('Waiting for absence page to load...');
+      let pageReady = await waitForAbsencePage(tabId);
+
+      if (!pageReady) {
+        // SSO login needed — bring the tab to the foreground
+        onLog('SSO login required. Opening tab for you to sign in...', 'info');
+        await browser.tabs.update(tabId, { active: true });
+
+        // Wait longer for the user to complete SSO login
+        // After SSO, Workday should redirect back to the absence page
+        pageReady = await waitForAbsencePage(tabId, 120000); // 2 minute timeout
+
+        if (!pageReady) {
+          throw new Error(
+            'Timed out waiting for SSO login. Please sign into Workday and try again.',
+          );
+        }
+
+        onLog('SSO login complete!', 'success');
+
+        // Move tab back to background if we created it
+        if (createdTab) {
+          await browser.tabs.update(tabId, { active: false });
+        }
+      }
+
+      // Scrape the absence data
+      onLog('Scraping PTO entries...');
       const response = await browser.tabs.sendMessage(tabId, {
         type: 'SCRAPE_PTO',
       });
 
+      // Close the tab if we created it
+      if (createdTab) {
+        await browser.tabs.remove(tabId);
+      }
+
       if (!response || !response.success) {
-        throw new Error(response?.error ?? 'Failed to scrape PTO data from Workday page.');
+        throw new Error(response?.error ?? 'Failed to scrape PTO data from Workday.');
       }
 
       return response.entries;
@@ -134,7 +244,7 @@ syncBtn.addEventListener('click', async () => {
     });
 
     const service = createSyncService({
-      timeOffSource: createContentScriptSource(),
+      timeOffSource: createAutoTimeOffSource(addLog),
       calendarTarget: createGoogleCalendarAdapter(getAuthToken),
       syncStateStore: createChromeStorageAdapter(),
       logger: createConsoleLogger(),

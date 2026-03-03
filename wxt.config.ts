@@ -7,10 +7,9 @@ export default defineConfig({
     description: 'Syncs PTO/time-off from Workday to Google Calendar',
     permissions: ['identity', 'storage', 'activeTab', 'tabs'],
     host_permissions: ['https://*.myworkday.com/*', 'https://www.googleapis.com/*'],
-    // TODO: Replace with a real OAuth2 client ID from Google Cloud Console
-    // oauth2: {
-    //   client_id: 'YOUR_CLIENT_ID.apps.googleusercontent.com',
-    //   scopes: ['https://www.googleapis.com/auth/calendar.events'],
-    // },
+    oauth2: {
+      client_id: '5968968327-njl8ho7kcp1876frdljpspl72h8es7f2.apps.googleusercontent.com',
+      scopes: ['https://www.googleapis.com/auth/calendar.events'],
+    },
   },
 });
