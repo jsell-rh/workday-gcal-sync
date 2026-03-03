@@ -1,30 +1,286 @@
+import { createGoogleCalendarAdapter } from '../adapters/google-calendar/api-client';
+import { createChromeStorageAdapter } from '../adapters/storage/chrome-storage';
+import { createConsoleLogger } from '../adapters/logging/console-logger';
+import { createEventBus } from '../domain/events/event-bus';
+import { createSyncService } from '../domain/services/sync-service';
+import type { TimeOffSource } from '../domain/ports/time-off-source';
+import type { TimeOffEntry } from '../domain/model/time-off-entry';
+import type { DomainEvent } from '../domain/events/domain-events';
+import type { SyncResult } from '../domain/model/sync-result';
+
+const WORKDAY_ABSENCE_URL = 'https://wd5.myworkday.com/redhat/d/task/2997$276.htmld';
+
+// --- Sync state ---
+
+interface LogEntry {
+  timestamp: string;
+  message: string;
+  level: 'info' | 'error' | 'success';
+}
+
+interface SyncState {
+  status: 'idle' | 'syncing' | 'awaiting-sso' | 'completed' | 'failed';
+  log: LogEntry[];
+  lastResult: SyncResult | null;
+  error: string | null;
+}
+
+let syncState: SyncState = {
+  status: 'idle',
+  log: [],
+  lastResult: null,
+  error: null,
+};
+
+function appendLog(message: string, level: LogEntry['level'] = 'info') {
+  syncState.log.push({
+    timestamp: new Date().toLocaleTimeString(),
+    message,
+    level,
+  });
+}
+
+// --- Tab helpers ---
+
+function waitForTabLoad(tabId: number, timeoutMs = 30000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      browser.tabs.onUpdated.removeListener(listener);
+      reject(new Error('Tab load timed out'));
+    }, timeoutMs);
+
+    const listener = (updatedTabId: number, changeInfo: { status?: string }) => {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        clearTimeout(timeout);
+        browser.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+
+    browser.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function waitForAbsencePage(tabId: number, timeoutMs = 20000): Promise<boolean> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const response = await browser.tabs.sendMessage(tabId, {
+        type: 'CHECK_PAGE_STATUS',
+      });
+
+      if (response?.onAbsencePage) {
+        return true;
+      }
+
+      if (response && !response.isWorkdayDomain) {
+        return false;
+      }
+    } catch {
+      // Content script not ready yet
+    }
+
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  return false;
+}
+
+// --- TimeOffSource that manages tabs from the background ---
+
+function createAutoTimeOffSource(): TimeOffSource {
+  return {
+    async getEntries(): Promise<TimeOffEntry[]> {
+      const existingTabs = await browser.tabs.query({
+        url: 'https://*.myworkday.com/*',
+      });
+
+      let tabId: number | undefined;
+      let createdTab = false;
+
+      if (existingTabs.length > 0) {
+        tabId = existingTabs[0].id;
+        appendLog('Found existing Workday tab');
+
+        const tab = existingTabs[0];
+        if (tab.url && !tab.url.includes('2997$276')) {
+          appendLog('Navigating to My Absence page...');
+          await browser.tabs.update(tabId!, { url: WORKDAY_ABSENCE_URL });
+          await waitForTabLoad(tabId!);
+        }
+      } else {
+        appendLog('Opening Workday in background...');
+        const tab = await browser.tabs.create({
+          url: WORKDAY_ABSENCE_URL,
+          active: false,
+        });
+        tabId = tab.id;
+        createdTab = true;
+        await waitForTabLoad(tabId!);
+      }
+
+      if (tabId === undefined) {
+        throw new Error('Failed to create Workday tab');
+      }
+
+      appendLog('Waiting for absence page to load...');
+      let pageReady = await waitForAbsencePage(tabId);
+
+      if (!pageReady) {
+        syncState.status = 'awaiting-sso';
+        appendLog('SSO login required. Opening tab for you to sign in...', 'info');
+        await browser.tabs.update(tabId, { active: true });
+
+        pageReady = await waitForAbsencePage(tabId, 120000);
+
+        if (!pageReady) {
+          throw new Error(
+            'Timed out waiting for SSO login. Please sign into Workday and try again.',
+          );
+        }
+
+        appendLog('SSO login complete!', 'success');
+        syncState.status = 'syncing';
+
+        if (createdTab) {
+          await browser.tabs.update(tabId, { active: false });
+        }
+      }
+
+      appendLog('Scraping PTO entries...');
+      const response = await browser.tabs.sendMessage(tabId, {
+        type: 'SCRAPE_PTO',
+      });
+
+      if (createdTab) {
+        await browser.tabs.remove(tabId);
+      }
+
+      if (!response || !response.success) {
+        throw new Error(response?.error ?? 'Failed to scrape PTO data from Workday.');
+      }
+
+      return response.entries;
+    },
+  };
+}
+
+// --- Google OAuth ---
+
+function getAuthToken(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (typeof chrome !== 'undefined' && chrome.identity) {
+      chrome.identity.getAuthToken({ interactive: true }, (token) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message ?? 'Auth failed'));
+        } else if (token) {
+          resolve(token);
+        } else {
+          reject(new Error('No auth token received'));
+        }
+      });
+    } else {
+      reject(new Error('Google OAuth not available. Chrome required for now.'));
+    }
+  });
+}
+
+// --- Run sync ---
+
+async function runSync() {
+  if (syncState.status === 'syncing' || syncState.status === 'awaiting-sso') {
+    return; // Already in progress
+  }
+
+  syncState = {
+    status: 'syncing',
+    log: [],
+    lastResult: null,
+    error: null,
+  };
+
+  appendLog('Starting sync...');
+
+  try {
+    const eventBus = createEventBus();
+
+    eventBus.subscribe((event: DomainEvent) => {
+      switch (event.type) {
+        case 'EntriesParsed':
+          appendLog(`Found ${event.count} entries (${event.syncableCount} syncable)`);
+          break;
+        case 'CalendarEventCreated':
+          appendLog(`Created: ${event.summary} (${event.date})`, 'success');
+          break;
+        case 'CalendarEventAlreadyExists':
+          appendLog(`Skipped: ${event.date} (already exists)`);
+          break;
+        case 'SyncCompleted':
+          appendLog(
+            `Done! ${event.entriesSynced} synced, ${event.entriesSkipped} skipped`,
+            'success',
+          );
+          break;
+        case 'SyncFailed':
+          appendLog(`Failed: ${event.error}`, 'error');
+          break;
+      }
+    });
+
+    const storage = createChromeStorageAdapter();
+
+    const service = createSyncService({
+      timeOffSource: createAutoTimeOffSource(),
+      calendarTarget: createGoogleCalendarAdapter(getAuthToken),
+      syncStateStore: storage,
+      logger: createConsoleLogger(),
+      eventBus,
+    });
+
+    await service.sync();
+
+    const result = await storage.getLastSyncResult();
+    syncState.status = 'completed';
+    syncState.lastResult = result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    syncState.status = 'failed';
+    syncState.error = message;
+    appendLog(message, 'error');
+  }
+}
+
+// --- Message handler ---
+
 export default defineBackground(() => {
   console.log('[PTO Sync] Background service worker started');
 
-  // Listen for messages from the popup
   browser.runtime.onMessage.addListener((message: { type: string }, _sender, sendResponse) => {
+    if (message.type === 'START_SYNC') {
+      runSync().then(() => {
+        // Sync finished (state already updated)
+      });
+      sendResponse({ started: true });
+      return false;
+    }
+
+    if (message.type === 'GET_SYNC_STATUS') {
+      sendResponse({
+        status: syncState.status,
+        log: syncState.log,
+        lastResult: syncState.lastResult,
+        error: syncState.error,
+      });
+      return false;
+    }
+
+    // Legacy: still support GET_AUTH_TOKEN for any other callers
     if (message.type === 'GET_AUTH_TOKEN') {
-      // Use chrome.identity for Google OAuth
-      // Note: chrome.identity is Chrome-specific; for Firefox we'd need
-      // a different approach. WXT handles the browser API differences.
-      if (typeof chrome !== 'undefined' && chrome.identity) {
-        chrome.identity.getAuthToken({ interactive: true }, (token) => {
-          if (chrome.runtime.lastError) {
-            sendResponse({
-              success: false,
-              error: chrome.runtime.lastError.message,
-            });
-          } else {
-            sendResponse({ success: true, token });
-          }
-        });
-        return true;
-      } else {
-        sendResponse({
-          success: false,
-          error: 'chrome.identity not available (Firefox not yet supported)',
-        });
-      }
+      getAuthToken()
+        .then((token) => sendResponse({ success: true, token }))
+        .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+      return true;
     }
   });
 });
