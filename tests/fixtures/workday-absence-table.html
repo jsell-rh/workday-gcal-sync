@@ -1,0 +1,484 @@
+<!--
+  Minimal HTML fixture replicating the Workday "My Absence" table structure.
+  Based on DOM captured via Playwright from:
+    https://wd5.myworkday.com/redhat/d/task/2997$276.htmld (2026-03-03)
+
+  Structure verified against real DOM:
+  - table[data-automation-id="table"]
+  - thead > tr[data-automation-id="tableHeaderRow"] > th[role="columnheader"]
+  - tbody > tr[data-automation-id="row"] > th[role="rowheader"] + td[data-automation-id="cell"]
+  - Three cell widget types: textView, numericText, promptOption
+-->
+<div data-automation-id="pageHeaderTitleText">My Absence</div>
+
+<div data-automation-id="tableWrapper">
+  <table data-automation-id="table" class="css-82nb8k e1uvbdgv1">
+    <thead data-automation-id="tableHead" class="css-17v3iyb">
+      <tr data-automation-id="tableHeaderRow" class="css-2baz84" role="row">
+        <th data-automation-id="columnHeader61.1" role="columnheader" scope="col">
+          <span>Date</span><span>Sort and filter column</span>
+        </th>
+        <th data-automation-id="columnHeader61.2" role="columnheader" scope="col">
+          <span>Day of the Week</span><span>Sort and filter column</span>
+        </th>
+        <th data-automation-id="columnHeader61.3" role="columnheader" scope="col">
+          <span>Type</span><span>Sort and filter column</span>
+        </th>
+        <th data-automation-id="columnHeader61.6" role="columnheader" scope="col">
+          <span>Requested</span><span>Sort and filter column</span>
+        </th>
+        <th data-automation-id="columnHeader61.7" role="columnheader" scope="col">
+          <span>Unit of Time</span><span>Sort and filter column</span>
+        </th>
+        <th data-automation-id="columnHeader61.8" role="columnheader" scope="col">
+          <span>Status</span><span>Sort and filter column</span>
+        </th>
+        <th data-automation-id="columnHeader61.9" role="columnheader" scope="col">
+          <span>View More</span><span>Sort and filter column</span>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Row 1: Submitted PTO, 8 hours -->
+      <tr
+        class="css-bfwf0z"
+        data-testid="row"
+        data-automation-id="row"
+        role="row"
+        data-row-id="340"
+      >
+        <th
+          class="css-1ujqzsq"
+          data-automation-id="cell"
+          role="rowheader"
+          scope="row"
+          aria-label=""
+        >
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.1-340">
+              <div>
+                <div class="wd-Text" data-automation-id="textView" dir="ltr">03/13/2026</div>
+              </div>
+            </div>
+          </div>
+        </th>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.2-340">
+              <div><div class="wd-Text" data-automation-id="textView" dir="ltr">Friday</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.3-340">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div
+                      data-automation-id="promptOption"
+                      data-automation-label="Paid Time Off (PTO)"
+                    >
+                      Paid Time Off (PTO)
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.6-340">
+              <div><div data-automation-id="numericText">8</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.7-340">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div data-automation-id="promptOption" data-automation-label="Hours">Hours</div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.8-340">
+              <div>
+                <div class="wd-Text" data-automation-id="textView" dir="ltr">Submitted</div>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.9-340">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li><div data-automation-id="promptOption" data-automation-label=""></div></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+
+      <!-- Row 2: Approved PTO, 8 hours -->
+      <tr
+        class="css-bfwf0z"
+        data-testid="row"
+        data-automation-id="row"
+        role="row"
+        data-row-id="356"
+      >
+        <th
+          class="css-1ujqzsq"
+          data-automation-id="cell"
+          role="rowheader"
+          scope="row"
+          aria-label=""
+        >
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.1-356">
+              <div>
+                <div class="wd-Text" data-automation-id="textView" dir="ltr">02/24/2026</div>
+              </div>
+            </div>
+          </div>
+        </th>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.2-356">
+              <div><div class="wd-Text" data-automation-id="textView" dir="ltr">Tuesday</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.3-356">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div
+                      data-automation-id="promptOption"
+                      data-automation-label="Paid Time Off (PTO)"
+                    >
+                      Paid Time Off (PTO)
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.6-356">
+              <div><div data-automation-id="numericText">8</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.7-356">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div data-automation-id="promptOption" data-automation-label="Hours">Hours</div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.8-356">
+              <div><div class="wd-Text" data-automation-id="textView" dir="ltr">Approved</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.9-356">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li><div data-automation-id="promptOption" data-automation-label=""></div></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+
+      <!-- Row 3: Approved Floating Holiday, 8 hours -->
+      <tr
+        class="css-bfwf0z"
+        data-testid="row"
+        data-automation-id="row"
+        role="row"
+        data-row-id="372"
+      >
+        <th
+          class="css-1ujqzsq"
+          data-automation-id="cell"
+          role="rowheader"
+          scope="row"
+          aria-label=""
+        >
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.1-372">
+              <div>
+                <div class="wd-Text" data-automation-id="textView" dir="ltr">01/23/2026</div>
+              </div>
+            </div>
+          </div>
+        </th>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.2-372">
+              <div><div class="wd-Text" data-automation-id="textView" dir="ltr">Friday</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.3-372">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div data-automation-id="promptOption" data-automation-label="Floating Holiday">
+                      Floating Holiday
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.6-372">
+              <div><div data-automation-id="numericText">8</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.7-372">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div data-automation-id="promptOption" data-automation-label="Hours">Hours</div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.8-372">
+              <div><div class="wd-Text" data-automation-id="textView" dir="ltr">Approved</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.9-372">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li><div data-automation-id="promptOption" data-automation-label=""></div></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+
+      <!-- Row 4: Approved PTO, half day (4 hours) -->
+      <tr
+        class="css-bfwf0z"
+        data-testid="row"
+        data-automation-id="row"
+        role="row"
+        data-row-id="388"
+      >
+        <th
+          class="css-1ujqzsq"
+          data-automation-id="cell"
+          role="rowheader"
+          scope="row"
+          aria-label=""
+        >
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.1-388">
+              <div>
+                <div class="wd-Text" data-automation-id="textView" dir="ltr">10/01/2025</div>
+              </div>
+            </div>
+          </div>
+        </th>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.2-388">
+              <div>
+                <div class="wd-Text" data-automation-id="textView" dir="ltr">Wednesday</div>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.3-388">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div
+                      data-automation-id="promptOption"
+                      data-automation-label="Paid Time Off (PTO)"
+                    >
+                      Paid Time Off (PTO)
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.6-388">
+              <div><div data-automation-id="numericText">4</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.7-388">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div data-automation-id="promptOption" data-automation-label="Hours">Hours</div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.8-388">
+              <div><div class="wd-Text" data-automation-id="textView" dir="ltr">Approved</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.9-388">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li><div data-automation-id="promptOption" data-automation-label=""></div></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+
+      <!-- Row 5: Cancellation (-8 hours) -->
+      <tr
+        class="css-bfwf0z"
+        data-testid="row"
+        data-automation-id="row"
+        role="row"
+        data-row-id="404"
+      >
+        <th
+          class="css-1ujqzsq"
+          data-automation-id="cell"
+          role="rowheader"
+          scope="row"
+          aria-label=""
+        >
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.1-404">
+              <div>
+                <div class="wd-Text" data-automation-id="textView" dir="ltr">08/19/2025</div>
+              </div>
+            </div>
+          </div>
+        </th>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.2-404">
+              <div><div class="wd-Text" data-automation-id="textView" dir="ltr">Tuesday</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.3-404">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div
+                      data-automation-id="promptOption"
+                      data-automation-label="Paid Time Off (PTO)"
+                    >
+                      Paid Time Off (PTO)
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.6-404">
+              <div><div data-automation-id="numericText">-8</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.7-404">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li>
+                    <div data-automation-id="promptOption" data-automation-label="Hours">Hours</div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.8-404">
+              <div><div class="wd-Text" data-automation-id="textView" dir="ltr">Approved</div></div>
+            </div>
+          </div>
+        </td>
+        <td class="css-shy0hq" data-automation-id="cell" data-testid="cell" tabindex="0">
+          <div data-testid="cellContainer" data-automation-id="cellContainer">
+            <div data-testid="fallbackContainer" id="gen-dwr-comp-61.9-404">
+              <div data-automation-id="responsiveMonikerInput">
+                <ul data-automation-id="selectedItemList">
+                  <li><div data-automation-id="promptOption" data-automation-label=""></div></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
