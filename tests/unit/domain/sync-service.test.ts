@@ -26,10 +26,12 @@ function createMockCalendarTarget(overrides: Partial<CalendarTarget> = {}): Cale
 
 function createMockSyncStateStore(
   syncedDates: Set<string> = new Set(),
+  eventIds: Record<string, string> = {},
   overrides: Partial<SyncStateStore> = {},
 ): SyncStateStore {
   return {
     getSyncedDates: vi.fn(async () => syncedDates),
+    getEventId: vi.fn(async (date: string) => eventIds[date] ?? null),
     markSynced: vi.fn(async () => {}),
     removeSynced: vi.fn(async () => {}),
     getLastSyncResult: vi.fn(async () => null),
@@ -512,5 +514,134 @@ describe('SyncService', () => {
     expect(savedResult.entriesFound).toBe(0);
     expect(savedResult.entriesSynced).toBe(0);
     expect(savedResult.entriesSkipped).toBe(0);
+  });
+
+  it('handles cancellations by deleting previously-synced calendar events', async () => {
+    const entries = [
+      makeEntry({ date: '2025-03-15', requestedHours: -8 }), // cancellation
+    ];
+    const timeOffSource = createMockTimeOffSource(entries);
+    const calendarTarget = createMockCalendarTarget();
+    const syncStateStore = createMockSyncStateStore(new Set(['2025-03-15']), {
+      '2025-03-15': 'event-id-to-delete',
+    });
+
+    const service = createSyncService({
+      timeOffSource,
+      calendarTarget,
+      syncStateStore,
+      logger,
+      eventBus,
+    });
+
+    await service.sync();
+
+    // Should delete the event
+    expect(calendarTarget.deleteEvent).toHaveBeenCalledWith('event-id-to-delete');
+    // Should remove from synced state
+    expect(syncStateStore.removeSynced).toHaveBeenCalledWith('2025-03-15');
+    // Should publish EntrySkipped with cancellation reason
+    const skippedEvents = eventBus.events.filter((e) => e.type === 'EntrySkipped');
+    expect(skippedEvents).toHaveLength(1);
+    if (skippedEvents[0].type === 'EntrySkipped') {
+      expect(skippedEvents[0].reason).toContain('cancelled');
+    }
+  });
+
+  it('does not delete events marked as "existing" during cancellation', async () => {
+    const entries = [makeEntry({ date: '2025-03-15', requestedHours: -8 })];
+    const timeOffSource = createMockTimeOffSource(entries);
+    const calendarTarget = createMockCalendarTarget();
+    const syncStateStore = createMockSyncStateStore(new Set(['2025-03-15']), {
+      '2025-03-15': 'existing',
+    });
+
+    const service = createSyncService({
+      timeOffSource,
+      calendarTarget,
+      syncStateStore,
+      logger,
+      eventBus,
+    });
+
+    await service.sync();
+
+    // Should NOT delete — 'existing' events were pre-existing, not created by us
+    expect(calendarTarget.deleteEvent).not.toHaveBeenCalled();
+  });
+
+  it('ignores cancellations for dates not previously synced', async () => {
+    const entries = [makeEntry({ date: '2025-03-15', requestedHours: -8 })];
+    const timeOffSource = createMockTimeOffSource(entries);
+    const calendarTarget = createMockCalendarTarget();
+    const syncStateStore = createMockSyncStateStore();
+
+    const service = createSyncService({
+      timeOffSource,
+      calendarTarget,
+      syncStateStore,
+      logger,
+      eventBus,
+    });
+
+    await service.sync();
+
+    expect(calendarTarget.deleteEvent).not.toHaveBeenCalled();
+    expect(syncStateStore.removeSynced).not.toHaveBeenCalled();
+  });
+
+  it('aborts early on auth errors', async () => {
+    const entries = [
+      makeEntry({ date: '2025-03-15' }),
+      makeEntry({ date: '2025-03-16' }),
+      makeEntry({ date: '2025-03-17' }),
+    ];
+    const timeOffSource = createMockTimeOffSource(entries);
+    const calendarTarget = createMockCalendarTarget({
+      createEvent: vi
+        .fn()
+        .mockRejectedValue(new Error('Google Calendar API error (401): Unauthorized')),
+    });
+    const syncStateStore = createMockSyncStateStore();
+
+    const service = createSyncService({
+      timeOffSource,
+      calendarTarget,
+      syncStateStore,
+      logger,
+      eventBus,
+    });
+
+    await service.sync();
+
+    // Should only try the first entry, then abort
+    expect(calendarTarget.createEvent).toHaveBeenCalledTimes(1);
+    const failedEvents = eventBus.events.filter((e) => e.type === 'EntryFailed');
+    expect(failedEvents).toHaveLength(1);
+  });
+
+  it('continues on non-auth errors', async () => {
+    const entries = [makeEntry({ date: '2025-03-15' }), makeEntry({ date: '2025-03-16' })];
+    const timeOffSource = createMockTimeOffSource(entries);
+    const calendarTarget = createMockCalendarTarget({
+      createEvent: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Calendar API rate limit'))
+        .mockResolvedValueOnce('event-id-456'),
+    });
+    const syncStateStore = createMockSyncStateStore();
+
+    const service = createSyncService({
+      timeOffSource,
+      calendarTarget,
+      syncStateStore,
+      logger,
+      eventBus,
+    });
+
+    await service.sync();
+
+    // Should try both entries (rate limit is not an auth error)
+    expect(calendarTarget.createEvent).toHaveBeenCalledTimes(2);
   });
 });

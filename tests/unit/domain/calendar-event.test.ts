@@ -88,4 +88,18 @@ describe('calendarEventFromTimeOff', () => {
 
     expect(event.summary).toBe('PTO - Paid Time Off (PTO)');
   });
+
+  it('sets isAllDay to false when eventVisibility is outOfOffice', () => {
+    const event = calendarEventFromTimeOff(
+      {
+        date: '2025-03-15',
+        type: 'Paid Time Off (PTO)',
+        requestedHours: 8,
+      },
+      { eventVisibility: 'outOfOffice' },
+    );
+
+    expect(event.isAllDay).toBe(false);
+    expect(event.visibility).toBe('outOfOffice');
+  });
 });

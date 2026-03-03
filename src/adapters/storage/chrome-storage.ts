@@ -30,6 +30,12 @@ export function createChromeStorageAdapter(): SyncStateStore {
       return new Set(Object.keys(record));
     },
 
+    async getEventId(date: string): Promise<string | null> {
+      const result = await browser.storage.local.get(STORAGE_KEYS.SYNCED_DATES);
+      const record: SyncedDatesRecord = result[STORAGE_KEYS.SYNCED_DATES] ?? {};
+      return record[date] ?? null;
+    },
+
     async markSynced(date: string, calendarEventId: string): Promise<void> {
       const result = await browser.storage.local.get(STORAGE_KEYS.SYNCED_DATES);
       const record: SyncedDatesRecord = result[STORAGE_KEYS.SYNCED_DATES] ?? {};
@@ -68,7 +74,13 @@ export function createSettingsStore(): SettingsStore {
       const result = await browser.storage.local.get(STORAGE_KEYS.SETTINGS);
       const stored = result[STORAGE_KEYS.SETTINGS];
       if (!stored) return { ...DEFAULT_SETTINGS };
-      return { ...DEFAULT_SETTINGS, ...stored };
+
+      // Migrate legacy calendarId -> calendarIds
+      const merged = { ...DEFAULT_SETTINGS, ...stored };
+      if (!stored.calendarIds && 'calendarId' in stored && typeof stored.calendarId === 'string') {
+        merged.calendarIds = [stored.calendarId];
+      }
+      return merged;
     },
 
     async saveSettings(settings: SyncSettings): Promise<void> {

@@ -20,7 +20,7 @@ describe('SettingsStore', () => {
       const custom: SyncSettings = {
         eventVisibility: 'free',
         titleTemplate: '{type}',
-        calendarId: 'my-cal@group.calendar.google.com',
+        calendarIds: ['my-cal@group.calendar.google.com'],
         workdayAbsenceUrl: 'https://wd5.myworkday.com/other/d/task/2997$276.htmld',
       };
 
@@ -33,6 +33,21 @@ describe('SettingsStore', () => {
       expect(settings).toEqual(custom);
     });
 
+    it('migrates legacy calendarId to calendarIds', async () => {
+      await browser.storage.local.set({
+        [STORAGE_KEYS.SETTINGS]: {
+          eventVisibility: 'free',
+          titleTemplate: '{type}',
+          calendarId: 'legacy-cal@group.calendar.google.com',
+          workdayAbsenceUrl: 'https://wd5.myworkday.com/other/d/task/2997$276.htmld',
+        },
+      });
+
+      const store = createSettingsStore();
+      const settings = await store.getSettings();
+      expect(settings.calendarIds).toEqual(['legacy-cal@group.calendar.google.com']);
+    });
+
     it('merges partial stored settings with defaults', async () => {
       await browser.storage.local.set({
         [STORAGE_KEYS.SETTINGS]: { eventVisibility: 'outOfOffice' },
@@ -42,7 +57,7 @@ describe('SettingsStore', () => {
       const settings = await store.getSettings();
       expect(settings.eventVisibility).toBe('outOfOffice');
       expect(settings.titleTemplate).toBe(DEFAULT_SETTINGS.titleTemplate);
-      expect(settings.calendarId).toBe(DEFAULT_SETTINGS.calendarId);
+      expect(settings.calendarIds).toEqual(DEFAULT_SETTINGS.calendarIds);
       expect(settings.workdayAbsenceUrl).toBe(DEFAULT_SETTINGS.workdayAbsenceUrl);
     });
   });
@@ -53,7 +68,7 @@ describe('SettingsStore', () => {
       const custom: SyncSettings = {
         eventVisibility: 'outOfOffice',
         titleTemplate: 'OOO ({hours}h)',
-        calendarId: 'work-cal',
+        calendarIds: ['work-cal'],
         workdayAbsenceUrl: 'https://wd5.myworkday.com/other/d/task/2997$276.htmld',
       };
 

@@ -56,7 +56,7 @@ describe('DEFAULT_SETTINGS', () => {
   it('has expected default values', () => {
     expect(DEFAULT_SETTINGS.eventVisibility).toBe('busy');
     expect(DEFAULT_SETTINGS.titleTemplate).toBe('PTO - {type}');
-    expect(DEFAULT_SETTINGS.calendarId).toBe('primary');
+    expect(DEFAULT_SETTINGS.calendarIds).toEqual(['primary']);
     expect(DEFAULT_SETTINGS.workdayAbsenceUrl).toContain('myworkday.com');
   });
 });

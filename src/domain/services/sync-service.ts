@@ -3,7 +3,7 @@ import type { CalendarTarget } from '../ports/calendar-target';
 import type { SyncStateStore } from '../ports/sync-state-store';
 import type { Logger } from '../ports/logger';
 import type { EventBus } from '../events/event-bus';
-import { isSyncable } from '../model/time-off-entry';
+import { isSyncable, isCancellation } from '../model/time-off-entry';
 import { calendarEventFromTimeOff } from '../model/calendar-event';
 import { createSyncResult, type SyncError } from '../model/sync-result';
 import { createDomainEvent } from '../events/domain-events';
@@ -41,6 +41,31 @@ export function createSyncService(deps: SyncServiceDeps) {
           total: entries.length,
           syncable: syncable.length,
         });
+
+        // Phase 1: Handle cancellations — delete calendar events for cancelled PTO
+        const cancellations = entries.filter(isCancellation);
+        for (const cancellation of cancellations) {
+          const eventId = await syncStateStore.getEventId(cancellation.date);
+          if (eventId && eventId !== 'existing') {
+            try {
+              await calendarTarget.deleteEvent(eventId);
+              await syncStateStore.removeSynced(cancellation.date);
+              eventBus.publish(
+                createDomainEvent('EntrySkipped', {
+                  date: cancellation.date,
+                  reason: 'cancelled - calendar event removed',
+                }),
+              );
+              logger.info('Cancelled PTO event removed', { date: cancellation.date });
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              logger.error('Failed to remove cancelled event', {
+                date: cancellation.date,
+                error: message,
+              });
+            }
+          }
+        }
 
         // 2. Get already-synced dates
         const syncedDates = await syncStateStore.getSyncedDates();
@@ -122,6 +147,12 @@ export function createSyncService(deps: SyncServiceDeps) {
               }),
             );
             logger.error('Failed to sync entry', { date: entry.date, error: message });
+
+            // Fail fast on auth errors — no point retrying remaining entries
+            if (/oauth|401|auth|token/i.test(message)) {
+              logger.error('Auth error detected, aborting remaining entries');
+              break;
+            }
           }
         }
 

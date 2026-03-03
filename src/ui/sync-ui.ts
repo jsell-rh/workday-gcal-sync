@@ -142,5 +142,20 @@ export function initSyncUI(elements: SyncUIElements) {
   syncBtn.addEventListener('click', startSync);
 
   // --- Init: fetch current state on open ---
-  pollStatus();
+  // If sync is already in progress, start polling immediately
+  async function initStatus() {
+    try {
+      const response: SyncStatusResponse = await browser.runtime.sendMessage({
+        type: 'GET_SYNC_STATUS',
+      });
+      renderStatus(response);
+      if (response.status === 'syncing' || response.status === 'awaiting-sso') {
+        startPolling();
+      }
+    } catch {
+      // Background may not be ready yet
+    }
+  }
+
+  initStatus();
 }

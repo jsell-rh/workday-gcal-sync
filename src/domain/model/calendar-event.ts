@@ -5,7 +5,7 @@ export interface CalendarEvent {
   readonly description: string;
   readonly startDate: string; // ISO 8601 date (YYYY-MM-DD)
   readonly endDate: string; // ISO 8601 date, exclusive (YYYY-MM-DD, day after)
-  readonly isAllDay: true;
+  readonly isAllDay: boolean;
   readonly visibility: EventVisibility;
 }
 
@@ -54,7 +54,7 @@ export function calendarEventFromTimeOff(
     description: `Auto-synced from Workday. ${entry.requestedHours} hours.`,
     startDate,
     endDate,
-    isAllDay: true,
+    isAllDay: eventVisibility !== 'outOfOffice',
     visibility: eventVisibility,
   };
 }

@@ -3,14 +3,14 @@ export type EventVisibility = 'busy' | 'free' | 'outOfOffice';
 export interface SyncSettings {
   readonly eventVisibility: EventVisibility;
   readonly titleTemplate: string;
-  readonly calendarId: string; // 'primary' or a specific calendar ID
+  readonly calendarIds: string[]; // ['primary'] or specific calendar IDs
   readonly workdayAbsenceUrl: string;
 }
 
 export const DEFAULT_SETTINGS: SyncSettings = {
   eventVisibility: 'busy',
   titleTemplate: 'PTO - {type}',
-  calendarId: 'primary',
+  calendarIds: ['primary'],
   workdayAbsenceUrl: 'https://wd5.myworkday.com/redhat/d/task/2997$276.htmld',
 };
 

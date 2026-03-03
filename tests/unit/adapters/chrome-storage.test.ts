@@ -34,6 +34,28 @@ describe('ChromeStorageAdapter', () => {
     });
   });
 
+  describe('getEventId', () => {
+    it('returns null when date is not stored', async () => {
+      const adapter = createChromeStorageAdapter();
+      const id = await adapter.getEventId('2025-03-15');
+      expect(id).toBeNull();
+    });
+
+    it('returns the event ID for a stored date', async () => {
+      await browser.storage.local.set({
+        [STORAGE_KEYS.SYNCED_DATES]: {
+          '2025-03-15': 'event-abc',
+          '2025-03-16': 'event-def',
+        },
+      });
+
+      const adapter = createChromeStorageAdapter();
+      expect(await adapter.getEventId('2025-03-15')).toBe('event-abc');
+      expect(await adapter.getEventId('2025-03-16')).toBe('event-def');
+      expect(await adapter.getEventId('2025-03-17')).toBeNull();
+    });
+  });
+
   describe('markSynced', () => {
     it('adds a date to the synced set', async () => {
       const adapter = createChromeStorageAdapter();

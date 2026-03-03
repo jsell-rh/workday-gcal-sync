@@ -16,30 +16,40 @@ export interface CalendarListEntry {
 /**
  * Builds the Google Calendar API request body from a CalendarEvent.
  * Handles visibility mapping including Out of Office event type.
+ *
+ * Out of Office events cannot be all-day events (using `date` fields) in
+ * Google Calendar.  They must use `dateTime` with explicit midnight-to-midnight
+ * times and a timeZone so Google knows which day is intended.
  */
 function buildEventBody(event: CalendarEvent): Record<string, unknown> {
+  const isOutOfOffice = event.visibility === 'outOfOffice';
+
   const body: Record<string, unknown> = {
     summary: event.summary,
     description: event.description,
-    start: { date: event.startDate },
-    end: { date: event.endDate },
   };
 
-  switch (event.visibility) {
-    case 'free':
-      body.transparency = 'transparent';
-      break;
-    case 'outOfOffice':
-      body.eventType = 'outOfOffice';
-      body.transparency = 'opaque';
-      body.outOfOfficeProperties = {
-        autoDeclineMode: 'declineAllConflictingInvitations',
-      };
-      break;
-    case 'busy':
-    default:
-      body.transparency = 'opaque';
-      break;
+  if (isOutOfOffice) {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    body.start = { dateTime: `${event.startDate}T00:00:00`, timeZone };
+    body.end = { dateTime: `${event.endDate}T00:00:00`, timeZone };
+    body.eventType = 'outOfOffice';
+    body.outOfOfficeProperties = {
+      autoDeclineMode: 'declineAllConflictingInvitations',
+    };
+  } else {
+    body.start = { date: event.startDate };
+    body.end = { date: event.endDate };
+
+    switch (event.visibility) {
+      case 'free':
+        body.transparency = 'transparent';
+        break;
+      case 'busy':
+      default:
+        body.transparency = 'opaque';
+        break;
+    }
   }
 
   return body;
@@ -52,8 +62,8 @@ export function createGoogleCalendarAdapter(
   const calendarId = encodeURIComponent(config.calendarId ?? 'primary');
 
   async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
-    const token = await getAuthToken();
-    const response = await fetch(url, {
+    let token = await getAuthToken();
+    let response = await fetch(url, {
       ...options,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -61,6 +71,24 @@ export function createGoogleCalendarAdapter(
         ...options.headers,
       },
     });
+
+    // Token expired — clear cache and retry once
+    if (response.status === 401) {
+      if (typeof chrome !== 'undefined' && chrome.identity) {
+        await new Promise<void>((resolve) => {
+          chrome.identity.removeCachedAuthToken({ token }, () => resolve());
+        });
+      }
+      token = await getAuthToken();
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
+    }
 
     if (!response.ok) {
       const body = await response.text();

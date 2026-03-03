@@ -17,7 +17,7 @@ initSettingsUI({
   visibilitySelect: document.getElementById('visibility-select') as HTMLSelectElement,
   titleTemplateInput: document.getElementById('title-template') as HTMLInputElement,
   titlePreview: document.getElementById('title-preview')!,
-  calendarSelect: document.getElementById('calendar-select') as HTMLSelectElement,
+  calendarCheckboxes: document.getElementById('calendar-checkboxes')!,
   workdayUrlInput: document.getElementById('workday-url') as HTMLInputElement,
   saveBtn: document.getElementById('save-settings') as HTMLButtonElement,
   settingsStatus: document.getElementById('settings-status')!,

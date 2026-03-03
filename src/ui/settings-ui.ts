@@ -8,7 +8,7 @@ export interface SettingsUIElements {
   visibilitySelect: HTMLSelectElement;
   titleTemplateInput: HTMLInputElement;
   titlePreview: HTMLElement;
-  calendarSelect: HTMLSelectElement;
+  calendarCheckboxes: HTMLElement;
   workdayUrlInput: HTMLInputElement;
   saveBtn: HTMLButtonElement;
   settingsStatus: HTMLElement;
@@ -21,7 +21,7 @@ export function initSettingsUI(elements: SettingsUIElements) {
     visibilitySelect,
     titleTemplateInput,
     titlePreview,
-    calendarSelect,
+    calendarCheckboxes,
     workdayUrlInput,
     saveBtn,
     settingsStatus,
@@ -69,9 +69,9 @@ export function initSettingsUI(elements: SettingsUIElements) {
         titleTemplateInput.value = settings.titleTemplate;
         workdayUrlInput.value = settings.workdayAbsenceUrl;
 
-        // Set calendar select if calendars are loaded
+        // Check the stored calendar selections if calendars are loaded
         if (calendarsLoaded) {
-          calendarSelect.value = settings.calendarId;
+          applyCalendarSelections(settings.calendarIds);
         }
 
         updateTitlePreview();
@@ -81,51 +81,86 @@ export function initSettingsUI(elements: SettingsUIElements) {
     }
   }
 
+  function applyCalendarSelections(calendarIds: string[]) {
+    const checkboxes =
+      calendarCheckboxes.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    for (const cb of checkboxes) {
+      cb.checked = calendarIds.includes(cb.value);
+    }
+  }
+
+  function getSelectedCalendarIds(): string[] {
+    const checkboxes = calendarCheckboxes.querySelectorAll<HTMLInputElement>(
+      'input[type="checkbox"]:checked',
+    );
+    const ids = Array.from(checkboxes).map((cb) => cb.value);
+    return ids.length > 0 ? ids : ['primary'];
+  }
+
   // --- Load calendars ---
   async function loadCalendars() {
-    calendarSelect.innerHTML = '<option value="primary">Loading...</option>';
+    calendarCheckboxes.innerHTML = '<span style="color:#888;font-size:12px;">Loading...</span>';
 
     try {
       const response: { success: boolean; calendars?: CalendarListEntry[]; error?: string } =
         await browser.runtime.sendMessage({ type: 'LIST_CALENDARS' });
 
       if (response.success && response.calendars) {
-        calendarSelect.innerHTML = '';
+        calendarCheckboxes.innerHTML = '';
 
-        // Add "Primary" as default option
-        const primaryOpt = document.createElement('option');
-        primaryOpt.value = 'primary';
-        primaryOpt.textContent = 'Primary';
-        calendarSelect.appendChild(primaryOpt);
+        // Add "Primary" checkbox first
+        let primaryLabel = 'Primary';
+        const primaryCal = response.calendars.find((c) => c.primary);
+        if (primaryCal) {
+          primaryLabel = `${primaryCal.summary} (Primary)`;
+        }
+        appendCalendarCheckbox('primary', primaryLabel, true);
 
         for (const cal of response.calendars) {
-          if (cal.primary) {
-            // Update the "Primary" option text to show the actual name
-            primaryOpt.textContent = `${cal.summary} (Primary)`;
-            continue;
-          }
-          const opt = document.createElement('option');
-          opt.value = cal.id;
-          opt.textContent = cal.summary;
-          calendarSelect.appendChild(opt);
+          if (cal.primary) continue;
+          appendCalendarCheckbox(cal.id, cal.summary, false);
         }
 
         calendarsLoaded = true;
 
-        // Re-apply the stored calendar selection
+        // Re-apply the stored calendar selections
         const settingsResponse: { success: boolean; settings?: SyncSettings } =
           await browser.runtime.sendMessage({ type: 'GET_SETTINGS' });
         if (settingsResponse.success && settingsResponse.settings) {
-          calendarSelect.value = settingsResponse.settings.calendarId;
+          applyCalendarSelections(settingsResponse.settings.calendarIds);
         }
       } else {
-        calendarSelect.innerHTML = '<option value="primary">Primary (default)</option>';
+        calendarCheckboxes.innerHTML = '';
+        appendCalendarCheckbox('primary', 'Primary (default)', true);
         calendarsLoaded = true;
       }
     } catch {
-      calendarSelect.innerHTML = '<option value="primary">Primary (default)</option>';
+      calendarCheckboxes.innerHTML = '';
+      appendCalendarCheckbox('primary', 'Primary (default)', true);
       calendarsLoaded = true;
     }
+  }
+
+  function appendCalendarCheckbox(value: string, label: string, checked: boolean) {
+    const wrapper = document.createElement('label');
+    wrapper.style.display = 'flex';
+    wrapper.style.alignItems = 'center';
+    wrapper.style.gap = '6px';
+    wrapper.style.marginBottom = '4px';
+    wrapper.style.fontSize = '13px';
+    wrapper.style.cursor = 'pointer';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = value;
+    cb.checked = checked;
+
+    const text = document.createElement('span');
+    text.textContent = label;
+
+    wrapper.appendChild(cb);
+    wrapper.appendChild(text);
+    calendarCheckboxes.appendChild(wrapper);
   }
 
   // --- Save settings ---
@@ -133,7 +168,7 @@ export function initSettingsUI(elements: SettingsUIElements) {
     const settings: SyncSettings = {
       eventVisibility: visibilitySelect.value as SyncSettings['eventVisibility'],
       titleTemplate: titleTemplateInput.value || DEFAULT_SETTINGS.titleTemplate,
-      calendarId: calendarSelect.value || 'primary',
+      calendarIds: getSelectedCalendarIds(),
       workdayAbsenceUrl: workdayUrlInput.value || DEFAULT_SETTINGS.workdayAbsenceUrl,
     };
 

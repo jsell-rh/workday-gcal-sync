@@ -11,6 +11,11 @@ export interface SyncStateStore {
   getSyncedDates(): Promise<Set<string>>;
 
   /**
+   * Returns the calendar event ID for a synced date, or null if not found.
+   */
+  getEventId(date: string): Promise<string | null>;
+
+  /**
    * Marks a date as synced, with its calendar event ID.
    */
   markSynced(date: string, calendarEventId: string): Promise<void>;

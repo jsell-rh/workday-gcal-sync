@@ -1,4 +1,5 @@
 import { createGoogleCalendarAdapter, listCalendars } from '../adapters/google-calendar/api-client';
+import { createMultiCalendarTarget } from '../adapters/google-calendar/multi-calendar';
 import {
   createChromeStorageAdapter,
   createSettingsStore,
@@ -276,13 +277,29 @@ async function runSync() {
 
     const storage = createChromeStorageAdapter();
 
+    // Create calendar target(s) — supports multiple calendars
+    const calendarIds =
+      settings.calendarIds && settings.calendarIds.length > 0
+        ? settings.calendarIds
+        : DEFAULT_SETTINGS.calendarIds;
+
+    let calendarTarget;
+    if (calendarIds.length === 1) {
+      calendarTarget = createGoogleCalendarAdapter(getAuthToken, {
+        calendarId: calendarIds[0],
+      });
+    } else {
+      const targets = calendarIds.map((id) =>
+        createGoogleCalendarAdapter(getAuthToken, { calendarId: id }),
+      );
+      calendarTarget = createMultiCalendarTarget(targets);
+    }
+
     const service = createSyncService({
       timeOffSource: createAutoTimeOffSource(
         settings.workdayAbsenceUrl || DEFAULT_SETTINGS.workdayAbsenceUrl,
       ),
-      calendarTarget: createGoogleCalendarAdapter(getAuthToken, {
-        calendarId: settings.calendarId || 'primary',
-      }),
+      calendarTarget,
       syncStateStore: storage,
       logger: createConsoleLogger(),
       eventBus,

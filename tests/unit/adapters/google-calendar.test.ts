@@ -28,6 +28,7 @@ describe('GoogleCalendarAdapter', () => {
     startDate: '2025-03-15',
     endDate: '2025-03-16',
     isAllDay: true,
+    visibility: 'busy',
   };
 
   describe('createEvent', () => {
@@ -50,6 +51,44 @@ describe('GoogleCalendarAdapter', () => {
       expect(body.start.date).toBe('2025-03-15');
       expect(body.end.date).toBe('2025-03-16');
       expect(body.transparency).toBe('opaque');
+    });
+
+    it('uses dateTime for outOfOffice events instead of all-day date fields', async () => {
+      mockFetch.mockResolvedValueOnce(mockJsonResponse({ id: 'ooo-event-id' }));
+
+      const oooEvent: CalendarEvent = {
+        summary: 'PTO - Paid Time Off (PTO)',
+        description: 'Auto-synced from Workday. 8 hours.',
+        startDate: '2025-03-15',
+        endDate: '2025-03-16',
+        isAllDay: false,
+        visibility: 'outOfOffice',
+      };
+
+      const adapter = createGoogleCalendarAdapter(mockGetAuthToken);
+      const id = await adapter.createEvent(oooEvent);
+
+      expect(id).toBe('ooo-event-id');
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+
+      // Must use dateTime, not date
+      expect(body.start.dateTime).toBe('2025-03-15T00:00:00');
+      expect(body.start.timeZone).toBeDefined();
+      expect(body.start.date).toBeUndefined();
+      expect(body.end.dateTime).toBe('2025-03-16T00:00:00');
+      expect(body.end.timeZone).toBeDefined();
+      expect(body.end.date).toBeUndefined();
+
+      // Must set eventType and outOfOfficeProperties
+      expect(body.eventType).toBe('outOfOffice');
+      expect(body.outOfOfficeProperties).toEqual({
+        autoDeclineMode: 'declineAllConflictingInvitations',
+      });
+
+      // Must NOT include transparency
+      expect(body.transparency).toBeUndefined();
     });
 
     it('throws on API error', async () => {
@@ -110,6 +149,55 @@ describe('GoogleCalendarAdapter', () => {
 
       const [url] = mockFetch.mock.calls[0];
       expect(url).toContain(encodeURIComponent('my-custom-calendar@group.calendar.google.com'));
+    });
+  });
+
+  describe('401 token refresh', () => {
+    beforeEach(() => {
+      // Mock chrome.identity for token refresh tests
+      vi.stubGlobal('chrome', {
+        identity: {
+          removeCachedAuthToken: vi.fn((_opts: unknown, cb: () => void) => cb()),
+        },
+      });
+    });
+
+    it('retries once on 401 with a fresh token', async () => {
+      const tokens = ['expired-token', 'fresh-token'];
+      let tokenIndex = 0;
+      const getToken = vi.fn(async () => tokens[tokenIndex++]);
+
+      // First call returns 401, second succeeds
+      mockFetch
+        .mockResolvedValueOnce(mockJsonResponse({ error: 'Unauthorized' }, 401))
+        .mockResolvedValueOnce(mockJsonResponse({ id: 'created-event-id' }));
+
+      const adapter = createGoogleCalendarAdapter(getToken);
+      const id = await adapter.createEvent(testEvent);
+
+      expect(id).toBe('created-event-id');
+      expect(getToken).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      // First call used expired token
+      expect(mockFetch.mock.calls[0][1].headers.Authorization).toBe('Bearer expired-token');
+      // Retry used fresh token
+      expect(mockFetch.mock.calls[1][1].headers.Authorization).toBe('Bearer fresh-token');
+    });
+
+    it('throws if retry also fails', async () => {
+      const getToken = vi.fn(async () => 'some-token');
+
+      mockFetch
+        .mockResolvedValueOnce(mockJsonResponse({ error: 'Unauthorized' }, 401))
+        .mockResolvedValueOnce(mockJsonResponse({ error: 'Still unauthorized' }, 401));
+
+      const adapter = createGoogleCalendarAdapter(getToken);
+      await expect(adapter.createEvent(testEvent)).rejects.toThrow(
+        'Google Calendar API error (401)',
+      );
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
   });
 });
