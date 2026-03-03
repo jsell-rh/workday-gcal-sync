@@ -1,37 +1,58 @@
 import type { SyncStateStore } from '../../domain/ports/sync-state-store';
 import type { SyncResult } from '../../domain/model/sync-result';
 
+const STORAGE_KEYS = {
+  SYNCED_DATES: 'pto-sync:synced-dates',
+  LAST_SYNC_RESULT: 'pto-sync:last-sync-result',
+} as const;
+
+/**
+ * Internal storage shape for synced dates.
+ * Maps ISO date string to calendar event ID.
+ */
+interface SyncedDatesRecord {
+  [date: string]: string;
+}
+
 /**
  * Adapter: Chrome extension storage for sync state.
  *
- * Uses chrome.storage.local (via WXT storage utils) to persist
- * which dates have been synced and the last sync result.
+ * Uses browser.storage.local (WXT polyfills this as `browser`)
+ * to persist which dates have been synced and the last sync result.
  */
 export function createChromeStorageAdapter(): SyncStateStore {
   return {
     async getSyncedDates(): Promise<Set<string>> {
-      // TODO: Read from chrome.storage.local
-      throw new Error('Not implemented');
+      const result = await browser.storage.local.get(STORAGE_KEYS.SYNCED_DATES);
+      const record: SyncedDatesRecord = result[STORAGE_KEYS.SYNCED_DATES] ?? {};
+      return new Set(Object.keys(record));
     },
 
-    async markSynced(_date: string, _calendarEventId: string): Promise<void> {
-      // TODO: Write to chrome.storage.local
-      throw new Error('Not implemented');
+    async markSynced(date: string, calendarEventId: string): Promise<void> {
+      const result = await browser.storage.local.get(STORAGE_KEYS.SYNCED_DATES);
+      const record: SyncedDatesRecord = result[STORAGE_KEYS.SYNCED_DATES] ?? {};
+      record[date] = calendarEventId;
+      await browser.storage.local.set({ [STORAGE_KEYS.SYNCED_DATES]: record });
     },
 
-    async removeSynced(_date: string): Promise<void> {
-      // TODO: Remove from chrome.storage.local
-      throw new Error('Not implemented');
+    async removeSynced(date: string): Promise<void> {
+      const result = await browser.storage.local.get(STORAGE_KEYS.SYNCED_DATES);
+      const record: SyncedDatesRecord = result[STORAGE_KEYS.SYNCED_DATES] ?? {};
+      delete record[date];
+      await browser.storage.local.set({ [STORAGE_KEYS.SYNCED_DATES]: record });
     },
 
     async getLastSyncResult(): Promise<SyncResult | null> {
-      // TODO: Read from chrome.storage.local
-      throw new Error('Not implemented');
+      const result = await browser.storage.local.get(STORAGE_KEYS.LAST_SYNC_RESULT);
+      return result[STORAGE_KEYS.LAST_SYNC_RESULT] ?? null;
     },
 
-    async saveLastSyncResult(_result: SyncResult): Promise<void> {
-      // TODO: Write to chrome.storage.local
-      throw new Error('Not implemented');
+    async saveLastSyncResult(syncResult: SyncResult): Promise<void> {
+      await browser.storage.local.set({
+        [STORAGE_KEYS.LAST_SYNC_RESULT]: syncResult,
+      });
     },
   };
 }
+
+export { STORAGE_KEYS };

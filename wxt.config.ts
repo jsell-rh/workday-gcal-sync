@@ -5,7 +5,7 @@ export default defineConfig({
   manifest: {
     name: 'PTO Sync - Workday to Google Calendar',
     description: 'Syncs PTO/time-off from Workday to Google Calendar',
-    permissions: ['identity', 'storage', 'activeTab'],
+    permissions: ['identity', 'storage', 'activeTab', 'tabs'],
     host_permissions: ['https://*.myworkday.com/*', 'https://www.googleapis.com/*'],
     // TODO: Replace with a real OAuth2 client ID from Google Cloud Console
     // oauth2: {

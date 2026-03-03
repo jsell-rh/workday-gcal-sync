@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PTO Sync</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        width: 360px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        color: #333;
+        padding: 16px;
+      }
+      h1 {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 4px;
+        color: #cc0000;
+      }
+      .subtitle {
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 16px;
+      }
+      .status-card {
+        background: #f5f5f5;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 12px;
+      }
+      .status-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #888;
+        margin-bottom: 4px;
+      }
+      .status-value {
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .status-value.success {
+        color: #2e7d32;
+      }
+      .status-value.error {
+        color: #c62828;
+      }
+      .status-value.pending {
+        color: #f57c00;
+      }
+      .sync-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .stat {
+        background: #f5f5f5;
+        border-radius: 8px;
+        padding: 8px;
+        text-align: center;
+      }
+      .stat-number {
+        font-size: 20px;
+        font-weight: 700;
+        color: #333;
+      }
+      .stat-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #888;
+      }
+      button {
+        width: 100%;
+        padding: 10px 16px;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      button.primary {
+        background: #cc0000;
+        color: white;
+      }
+      button.primary:hover {
+        background: #a30000;
+      }
+      button.primary:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+      .log-area {
+        margin-top: 12px;
+        max-height: 150px;
+        overflow-y: auto;
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        font-size: 11px;
+        background: #1e1e1e;
+        color: #d4d4d4;
+        border-radius: 8px;
+        padding: 8px;
+      }
+      .log-entry {
+        margin-bottom: 2px;
+        word-wrap: break-word;
+      }
+      .log-entry.info {
+        color: #4fc3f7;
+      }
+      .log-entry.error {
+        color: #ef5350;
+      }
+      .log-entry.success {
+        color: #66bb6a;
+      }
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>PTO Sync</h1>
+    <p class="subtitle">Workday → Google Calendar</p>
+
+    <div id="last-sync" class="status-card">
+      <div class="status-label">Last Sync</div>
+      <div id="last-sync-value" class="status-value pending">Never</div>
+    </div>
+
+    <div id="sync-stats" class="sync-stats hidden">
+      <div class="stat">
+        <div id="stat-found" class="stat-number">0</div>
+        <div class="stat-label">Found</div>
+      </div>
+      <div class="stat">
+        <div id="stat-synced" class="stat-number">0</div>
+        <div class="stat-label">Synced</div>
+      </div>
+      <div class="stat">
+        <div id="stat-skipped" class="stat-number">0</div>
+        <div class="stat-label">Skipped</div>
+      </div>
+    </div>
+
+    <button id="sync-btn" class="primary">Sync PTO Now</button>
+
+    <div id="log-area" class="log-area hidden"></div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
