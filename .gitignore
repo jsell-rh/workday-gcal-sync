@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# WXT build output
+.output/
+
+# WXT generated types
+.wxt/
+
+# Environment
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test artifacts
+tests/snapshots/
+test-results/
+playwright-report/
+
+# Coverage
+coverage/
