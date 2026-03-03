@@ -27,6 +27,18 @@
     </div>
     <p class="subtitle">Workday &rarr; Google Calendar</p>
 
+    <!-- Sidebar suggestion for popup users -->
+    <div id="sidebar-hint" class="sidebar-hint">
+      <div class="sidebar-hint-title">Tip: Use the sidebar for a better experience</div>
+      <div class="sidebar-hint-text">
+        The sidebar gives you more room to view your PTO entries. Right-click the extension icon and
+        choose "Open in side panel".
+      </div>
+      <button id="open-sidepanel-btn" class="sidebar-hint-btn" type="button">
+        Open in sidebar
+      </button>
+    </div>
+
     <div id="settings-panel" class="settings-panel hidden" role="region" aria-label="Settings">
       <h2>Settings</h2>
 
@@ -132,7 +144,9 @@
     <!-- Preview area -->
     <div id="preview-area" class="preview-area hidden">
       <div id="preview-summary" class="preview-summary"></div>
-      <div id="preview-table" class="preview-table"></div>
+      <div class="preview-scroll">
+        <div id="preview-table" class="preview-table"></div>
+      </div>
     </div>
 
     <!-- Primary action: Check Workday -->

@@ -45,3 +45,29 @@ initSettingsUI({
   saveBtn: document.getElementById('save-settings') as HTMLButtonElement,
   settingsStatus: document.getElementById('settings-status')!,
 });
+
+// Wire up sidebar hint button
+const openSidepanelBtn = document.getElementById('open-sidepanel-btn');
+if (openSidepanelBtn) {
+  openSidepanelBtn.addEventListener('click', async () => {
+    try {
+      // chrome.sidePanel.open requires a windowId
+      const currentWindow = await chrome.windows.getCurrent();
+      if (chrome.sidePanel && currentWindow.id != null) {
+        await chrome.sidePanel.open({ windowId: currentWindow.id });
+        window.close(); // close the popup
+      }
+    } catch {
+      // sidePanel API might not be available — fallback message
+      const hint = document.getElementById('sidebar-hint');
+      if (hint) {
+        const textEl = hint.querySelector('.sidebar-hint-text');
+        if (textEl) {
+          textEl.textContent =
+            'Right-click the extension icon in your toolbar and select "Open in side panel".';
+        }
+        openSidepanelBtn.remove();
+      }
+    }
+  });
+}
