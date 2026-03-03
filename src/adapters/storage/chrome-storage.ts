@@ -1,9 +1,11 @@
 import type { SyncStateStore } from '../../domain/ports/sync-state-store';
 import type { SyncResult } from '../../domain/model/sync-result';
+import { type SyncSettings, DEFAULT_SETTINGS } from '../../domain/model/settings';
 
 const STORAGE_KEYS = {
   SYNCED_DATES: 'pto-sync:synced-dates',
   LAST_SYNC_RESULT: 'pto-sync:last-sync-result',
+  SETTINGS: 'pto-sync:settings',
 } as const;
 
 /**
@@ -51,6 +53,26 @@ export function createChromeStorageAdapter(): SyncStateStore {
       await browser.storage.local.set({
         [STORAGE_KEYS.LAST_SYNC_RESULT]: syncResult,
       });
+    },
+  };
+}
+
+export interface SettingsStore {
+  getSettings(): Promise<SyncSettings>;
+  saveSettings(settings: SyncSettings): Promise<void>;
+}
+
+export function createSettingsStore(): SettingsStore {
+  return {
+    async getSettings(): Promise<SyncSettings> {
+      const result = await browser.storage.local.get(STORAGE_KEYS.SETTINGS);
+      const stored = result[STORAGE_KEYS.SETTINGS];
+      if (!stored) return { ...DEFAULT_SETTINGS };
+      return { ...DEFAULT_SETTINGS, ...stored };
+    },
+
+    async saveSettings(settings: SyncSettings): Promise<void> {
+      await browser.storage.local.set({ [STORAGE_KEYS.SETTINGS]: settings });
     },
   };
 }

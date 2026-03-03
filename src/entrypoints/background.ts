@@ -1,14 +1,18 @@
-import { createGoogleCalendarAdapter } from '../adapters/google-calendar/api-client';
-import { createChromeStorageAdapter } from '../adapters/storage/chrome-storage';
+import { createGoogleCalendarAdapter, listCalendars } from '../adapters/google-calendar/api-client';
+import {
+  createChromeStorageAdapter,
+  createSettingsStore,
+} from '../adapters/storage/chrome-storage';
 import { createConsoleLogger } from '../adapters/logging/console-logger';
 import { createEventBus } from '../domain/events/event-bus';
 import { createSyncService } from '../domain/services/sync-service';
+import { DEFAULT_SETTINGS, type SyncSettings } from '../domain/model/settings';
 import type { TimeOffSource } from '../domain/ports/time-off-source';
 import type { TimeOffEntry } from '../domain/model/time-off-entry';
 import type { DomainEvent } from '../domain/events/domain-events';
 import type { SyncResult } from '../domain/model/sync-result';
 
-const WORKDAY_ABSENCE_URL = 'https://wd5.myworkday.com/redhat/d/task/2997$276.htmld';
+const settingsStore = createSettingsStore();
 
 // --- Sync state ---
 
@@ -119,7 +123,7 @@ async function waitForAbsencePageAfterSSO(tabId: number, timeoutMs = 120000): Pr
 
 // --- TimeOffSource that manages tabs from the background ---
 
-function createAutoTimeOffSource(): TimeOffSource {
+function createAutoTimeOffSource(workdayAbsenceUrl: string): TimeOffSource {
   return {
     async getEntries(): Promise<TimeOffEntry[]> {
       const existingTabs = await browser.tabs.query({
@@ -136,13 +140,13 @@ function createAutoTimeOffSource(): TimeOffSource {
         const tab = existingTabs[0];
         if (tab.url && !tab.url.includes('2997$276')) {
           appendLog('Navigating to My Absence page...');
-          await browser.tabs.update(tabId!, { url: WORKDAY_ABSENCE_URL });
+          await browser.tabs.update(tabId!, { url: workdayAbsenceUrl });
           await waitForTabLoad(tabId!);
         }
       } else {
         appendLog('Opening Workday in background...');
         const tab = await browser.tabs.create({
-          url: WORKDAY_ABSENCE_URL,
+          url: workdayAbsenceUrl,
           active: false,
         });
         tabId = tab.id;
@@ -233,6 +237,9 @@ async function runSync() {
   appendLog('Starting sync...');
 
   try {
+    // Load settings before syncing
+    const settings: SyncSettings = await settingsStore.getSettings();
+
     const eventBus = createEventBus();
 
     eventBus.subscribe((event: DomainEvent) => {
@@ -270,11 +277,16 @@ async function runSync() {
     const storage = createChromeStorageAdapter();
 
     const service = createSyncService({
-      timeOffSource: createAutoTimeOffSource(),
-      calendarTarget: createGoogleCalendarAdapter(getAuthToken),
+      timeOffSource: createAutoTimeOffSource(
+        settings.workdayAbsenceUrl || DEFAULT_SETTINGS.workdayAbsenceUrl,
+      ),
+      calendarTarget: createGoogleCalendarAdapter(getAuthToken, {
+        calendarId: settings.calendarId || 'primary',
+      }),
       syncStateStore: storage,
       logger: createConsoleLogger(),
       eventBus,
+      settings,
     });
 
     await service.sync();
@@ -302,31 +314,65 @@ async function runSync() {
 export default defineBackground(() => {
   console.log('[PTO Sync] Background service worker started');
 
-  browser.runtime.onMessage.addListener((message: { type: string }, _sender, sendResponse) => {
-    if (message.type === 'START_SYNC') {
-      runSync().then(() => {
-        // Sync finished (state already updated)
-      });
-      sendResponse({ started: true });
-      return false;
-    }
+  // Open side panel when clicking the extension icon
+  if (chrome.sidePanel) {
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  }
 
-    if (message.type === 'GET_SYNC_STATUS') {
-      sendResponse({
-        status: syncState.status,
-        log: syncState.log,
-        lastResult: syncState.lastResult,
-        error: syncState.error,
-      });
-      return false;
-    }
+  browser.runtime.onMessage.addListener(
+    (message: { type: string; settings?: SyncSettings }, _sender, sendResponse) => {
+      if (message.type === 'START_SYNC') {
+        runSync().then(() => {
+          // Sync finished (state already updated)
+        });
+        sendResponse({ started: true });
+        return false;
+      }
 
-    // Legacy: still support GET_AUTH_TOKEN for any other callers
-    if (message.type === 'GET_AUTH_TOKEN') {
-      getAuthToken()
-        .then((token) => sendResponse({ success: true, token }))
-        .catch((err: Error) => sendResponse({ success: false, error: err.message }));
-      return true;
-    }
-  });
+      if (message.type === 'GET_SYNC_STATUS') {
+        sendResponse({
+          status: syncState.status,
+          log: syncState.log,
+          lastResult: syncState.lastResult,
+          error: syncState.error,
+        });
+        return false;
+      }
+
+      if (message.type === 'GET_SETTINGS') {
+        settingsStore
+          .getSettings()
+          .then((settings) => sendResponse({ success: true, settings }))
+          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+
+      if (message.type === 'SAVE_SETTINGS') {
+        if (!message.settings) {
+          sendResponse({ success: false, error: 'No settings provided' });
+          return false;
+        }
+        settingsStore
+          .saveSettings(message.settings)
+          .then(() => sendResponse({ success: true }))
+          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+
+      if (message.type === 'LIST_CALENDARS') {
+        listCalendars(getAuthToken)
+          .then((calendars) => sendResponse({ success: true, calendars }))
+          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+
+      // Legacy: still support GET_AUTH_TOKEN for any other callers
+      if (message.type === 'GET_AUTH_TOKEN') {
+        getAuthToken()
+          .then((token) => sendResponse({ success: true, token }))
+          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+    },
+  );
 });

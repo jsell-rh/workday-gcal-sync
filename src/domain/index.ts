@@ -1,6 +1,7 @@
 export * from './model/time-off-entry';
 export * from './model/calendar-event';
 export * from './model/sync-result';
+export * from './model/settings';
 export * from './events/domain-events';
 export * from './events/event-bus';
 export * from './ports/time-off-source';

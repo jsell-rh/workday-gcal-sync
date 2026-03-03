@@ -7,6 +7,7 @@ import { isSyncable } from '../model/time-off-entry';
 import { calendarEventFromTimeOff } from '../model/calendar-event';
 import { createSyncResult, type SyncError } from '../model/sync-result';
 import { createDomainEvent } from '../events/domain-events';
+import type { SyncSettings } from '../model/settings';
 
 export interface SyncServiceDeps {
   timeOffSource: TimeOffSource;
@@ -14,10 +15,11 @@ export interface SyncServiceDeps {
   syncStateStore: SyncStateStore;
   logger: Logger;
   eventBus: EventBus;
+  settings?: SyncSettings;
 }
 
 export function createSyncService(deps: SyncServiceDeps) {
-  const { timeOffSource, calendarTarget, syncStateStore, logger, eventBus } = deps;
+  const { timeOffSource, calendarTarget, syncStateStore, logger, eventBus, settings } = deps;
 
   return {
     async sync(): Promise<void> {
@@ -78,7 +80,10 @@ export function createSyncService(deps: SyncServiceDeps) {
           }
 
           try {
-            const calEvent = calendarEventFromTimeOff(entry);
+            const calEvent = calendarEventFromTimeOff(entry, {
+              titleTemplate: settings?.titleTemplate,
+              eventVisibility: settings?.eventVisibility,
+            });
             const exists = await calendarTarget.eventExists(calEvent.startDate, calEvent.summary);
 
             if (exists) {

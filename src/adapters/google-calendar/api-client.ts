@@ -7,6 +7,44 @@ export interface GoogleCalendarConfig {
   calendarId?: string; // defaults to 'primary'
 }
 
+export interface CalendarListEntry {
+  id: string;
+  summary: string;
+  primary: boolean;
+}
+
+/**
+ * Builds the Google Calendar API request body from a CalendarEvent.
+ * Handles visibility mapping including Out of Office event type.
+ */
+function buildEventBody(event: CalendarEvent): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    summary: event.summary,
+    description: event.description,
+    start: { date: event.startDate },
+    end: { date: event.endDate },
+  };
+
+  switch (event.visibility) {
+    case 'free':
+      body.transparency = 'transparent';
+      break;
+    case 'outOfOffice':
+      body.eventType = 'outOfOffice';
+      body.transparency = 'opaque';
+      body.outOfOfficeProperties = {
+        autoDeclineMode: 'declineAllConflictingInvitations',
+      };
+      break;
+    case 'busy':
+    default:
+      body.transparency = 'opaque';
+      break;
+  }
+
+  return body;
+}
+
 export function createGoogleCalendarAdapter(
   getAuthToken: () => Promise<string>,
   config: GoogleCalendarConfig = {},
@@ -34,13 +72,7 @@ export function createGoogleCalendarAdapter(
 
   return {
     async createEvent(event: CalendarEvent): Promise<string> {
-      const body = {
-        summary: event.summary,
-        description: event.description,
-        start: { date: event.startDate },
-        end: { date: event.endDate },
-        transparency: 'opaque',
-      };
+      const body = buildEventBody(event);
 
       const response = await authenticatedFetch(
         `${CALENDAR_API_BASE}/calendars/${calendarId}/events`,
@@ -84,4 +116,32 @@ export function createGoogleCalendarAdapter(
       );
     },
   };
+}
+
+/**
+ * Fetches the user's calendar list from Google Calendar API.
+ * Requires an auth token with calendar access.
+ */
+export async function listCalendars(
+  getAuthToken: () => Promise<string>,
+): Promise<CalendarListEntry[]> {
+  const token = await getAuthToken();
+  const response = await fetch(`${CALENDAR_API_BASE}/users/me/calendarList`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Google Calendar API error (${response.status}): ${body}`);
+  }
+
+  const data = await response.json();
+  return (data.items ?? []).map((item: { id: string; summary: string; primary?: boolean }) => ({
+    id: item.id,
+    summary: item.summary,
+    primary: item.primary === true,
+  }));
 }
