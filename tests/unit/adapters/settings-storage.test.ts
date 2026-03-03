@@ -22,6 +22,8 @@ describe('SettingsStore', () => {
         titleTemplate: '{type}',
         calendarIds: ['my-cal@group.calendar.google.com'],
         workdayAbsenceUrl: 'https://wd5.myworkday.com/other/d/task/2997$276.htmld',
+        autoSyncEnabled: true,
+        autoSyncIntervalMinutes: 30,
       };
 
       await browser.storage.local.set({
@@ -59,6 +61,8 @@ describe('SettingsStore', () => {
       expect(settings.titleTemplate).toBe(DEFAULT_SETTINGS.titleTemplate);
       expect(settings.calendarIds).toEqual(DEFAULT_SETTINGS.calendarIds);
       expect(settings.workdayAbsenceUrl).toBe(DEFAULT_SETTINGS.workdayAbsenceUrl);
+      expect(settings.autoSyncEnabled).toBe(false);
+      expect(settings.autoSyncIntervalMinutes).toBe(60);
     });
   });
 
@@ -70,6 +74,8 @@ describe('SettingsStore', () => {
         titleTemplate: 'OOO ({hours}h)',
         calendarIds: ['work-cal'],
         workdayAbsenceUrl: 'https://wd5.myworkday.com/other/d/task/2997$276.htmld',
+        autoSyncEnabled: true,
+        autoSyncIntervalMinutes: 120,
       };
 
       await store.saveSettings(custom);

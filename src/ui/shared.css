@@ -230,8 +230,9 @@ button:focus-visible {
 }
 
 button.primary {
-  background: #ee0000;
-  color: white;
+  background: white;
+  color: #ee0000;
+  border: 2px solid #ee0000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -239,36 +240,57 @@ button.primary {
 }
 
 button.primary:hover {
-  background: #a60000;
+  background: #fef0f0;
 }
 
 button.primary:disabled {
-  background: #c7c7c7;
+  background: #f5f5f5;
+  color: #c7c7c7;
+  border-color: #c7c7c7;
   cursor: not-allowed;
+}
+
+button.primary:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
 }
 
 .btn-spinner {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: white;
+  border: 2px solid rgba(238, 0, 0, 0.2);
+  border-top-color: #ee0000;
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
+}
+
+/* Spinner inside sync-confirm-btn (white on red) */
+button.sync-confirm-btn .btn-spinner {
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
 }
 
 button.secondary {
   background: #ee0000;
   color: white;
+  border: 2px solid #ee0000;
 }
 
 button.secondary:hover {
   background: #a60000;
+  border-color: #a60000;
 }
 
 button.secondary:disabled {
   background: #c7c7c7;
+  border-color: #c7c7c7;
   cursor: not-allowed;
+}
+
+button.secondary:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
 }
 
 /* ===== Log area (behind toggle) ===== */
@@ -473,22 +495,32 @@ button.secondary:disabled {
 /* ===== Sync confirm button ===== */
 button.sync-confirm-btn {
   margin-top: 8px;
-  background: #1a7f37;
+  background: #ee0000;
+  color: white;
+  border: 2px solid #ee0000;
 }
 
 button.sync-confirm-btn:hover {
-  background: #116329;
+  background: #a60000;
+  border-color: #a60000;
 }
 
 button.sync-confirm-btn:disabled {
   background: #c7c7c7;
+  border-color: #c7c7c7;
   cursor: not-allowed;
+}
+
+button.sync-confirm-btn:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
 }
 
 /* ===== Up-to-date button state ===== */
 button.sync-confirm-btn.up-to-date {
   background: #e9f7df;
   color: #1a7f37;
+  border-color: #1a7f37;
   cursor: default;
 }
 
@@ -516,32 +548,12 @@ button.sync-confirm-btn.up-to-date:hover {
   z-index: 10;
 }
 
-.summary-counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  font-size: 12px;
+.summary-message {
+  font-size: 13px;
   font-weight: 500;
+  color: #383838;
+  line-height: 1.5;
   margin-bottom: 0;
-}
-
-.summary-create {
-  color: #1a7f37;
-  font-weight: 500;
-}
-
-.summary-skip {
-  color: #707070;
-}
-
-.summary-delete {
-  color: #cf222e;
-  font-weight: 500;
-}
-
-.summary-resync {
-  color: #bf8700;
-  font-weight: 500;
 }
 
 /* ===== Preview scrollable container ===== */
@@ -927,6 +939,52 @@ button.sync-confirm-btn.up-to-date:hover {
 
 .sidebar-hint-btn:hover {
   background: #0052a3;
+}
+
+/* ===== Auto-sync settings ===== */
+.auto-sync-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #151515;
+}
+
+.auto-sync-label input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.auto-sync-interval {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auto-sync-interval label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #383838;
+  white-space: nowrap;
+}
+
+.auto-sync-interval select {
+  padding: 4px 8px;
+  border: 1px solid #c7c7c7;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  background: white;
+}
+
+.auto-sync-interval select:focus {
+  outline: none;
+  border-color: #0066cc;
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.15);
 }
 
 /* ===== Utility ===== */

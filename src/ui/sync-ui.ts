@@ -163,40 +163,86 @@ function groupByMonth<T extends { date: string }>(entries: T[]): MonthGroup<T>[]
   }));
 }
 
+/** Build a human-readable summary message for the preview */
+function buildSummaryMessage(summary: {
+  creates: number;
+  skips: number;
+  deletes: number;
+  resyncs: number;
+}): string {
+  const parts: string[] = [];
+
+  // Case: everything is up to date
+  if (summary.creates === 0 && summary.deletes === 0 && summary.resyncs === 0) {
+    const total = summary.skips;
+    return `All ${total} PTO ${total === 1 ? 'entry is' : 'entries are'} already on your calendar. Nothing to do.`;
+  }
+
+  // Re-syncs (entries removed from calendar that will be re-added)
+  if (summary.resyncs > 0) {
+    parts.push(
+      `${summary.resyncs} ${summary.resyncs === 1 ? 'entry was' : 'entries were'} removed from your calendar and will be re-added.`,
+    );
+  }
+
+  // New entries to add
+  if (summary.creates > 0) {
+    if (summary.resyncs > 0) {
+      parts.push(
+        `${summary.creates} new ${summary.creates === 1 ? 'entry' : 'entries'} will also be added.`,
+      );
+    } else {
+      parts.push(
+        `${summary.creates} PTO ${summary.creates === 1 ? 'entry' : 'entries'} will be added to your calendar.`,
+      );
+    }
+  }
+
+  // Entries to remove (cancellations)
+  if (summary.deletes > 0) {
+    parts.push(
+      `${summary.deletes} cancelled ${summary.deletes === 1 ? 'entry' : 'entries'} will be removed from your calendar.`,
+    );
+  }
+
+  // Existing entries
+  if (summary.skips > 0) {
+    parts.push(`${summary.skips} ${summary.skips === 1 ? 'is' : 'are'} already there.`);
+  }
+
+  return parts.join(' ');
+}
+
 /** Build the smart sync button text */
 function buildSyncButtonText(summary: {
   creates: number;
   deletes: number;
   resyncs: number;
 }): string {
-  const parts: string[] = [];
+  const addCount = summary.creates + summary.resyncs;
 
-  const newCount = summary.creates + summary.resyncs;
-  if (newCount > 0) {
-    parts.push(`${newCount} ${newCount === 1 ? 'event' : 'events'}`);
-  }
-
-  if (summary.deletes > 0) {
-    if (parts.length > 0) {
-      parts.push(`remove ${summary.deletes}`);
-    } else {
-      parts.push(`Remove ${summary.deletes} ${summary.deletes === 1 ? 'event' : 'events'}`);
-    }
-  }
-
-  if (parts.length === 0) {
+  // Nothing to do
+  if (addCount === 0 && summary.deletes === 0) {
     return 'Everything is up to date';
   }
 
-  if (summary.deletes > 0 && newCount > 0) {
-    return `Sync ${parts[0]} and ${parts[1]}`;
+  // Only re-adds (no new, no deletes)
+  if (summary.creates === 0 && summary.resyncs > 0 && summary.deletes === 0) {
+    return `Re-add ${summary.resyncs} ${summary.resyncs === 1 ? 'event' : 'events'} to calendar`;
   }
 
-  if (newCount > 0) {
-    return `Sync ${parts[0]} to calendar`;
+  // Adds and removals
+  if (addCount > 0 && summary.deletes > 0) {
+    return `Add ${addCount} ${addCount === 1 ? 'event' : 'events'} and remove ${summary.deletes}`;
   }
 
-  return parts[0]; // "Remove N events"
+  // Only adds
+  if (addCount > 0) {
+    return `Add ${addCount} ${addCount === 1 ? 'event' : 'events'} to calendar`;
+  }
+
+  // Only removals
+  return `Remove ${summary.deletes} ${summary.deletes === 1 ? 'event' : 'events'} from calendar`;
 }
 
 export function initSyncUI(elements: SyncUIElements) {
@@ -518,18 +564,10 @@ export function initSyncUI(elements: SyncUIElements) {
     previewArea.classList.remove('hidden');
     hasShownPreview = true;
 
-    // Render summary bar
+    // Render summary bar with human-readable message
     const summary = summarizePreview(preview);
-    const summaryParts: string[] = [];
-    if (summary.creates > 0)
-      summaryParts.push(`<span class="summary-create">${summary.creates} new</span>`);
-    if (summary.resyncs > 0)
-      summaryParts.push(`<span class="summary-resync">${summary.resyncs} re-sync</span>`);
-    if (summary.deletes > 0)
-      summaryParts.push(`<span class="summary-delete">${summary.deletes} to remove</span>`);
-    if (summary.skips > 0)
-      summaryParts.push(`<span class="summary-skip">${summary.skips} existing</span>`);
-    previewSummary.innerHTML = `<div class="summary-counts">${summaryParts.join(' &middot; ')}</div>`;
+    const summaryMessage = buildSummaryMessage(summary);
+    previewSummary.innerHTML = `<div class="summary-message">${summaryMessage}</div>`;
 
     // Group entries by month, newest first
     const monthGroups = groupByMonth(preview.entries);

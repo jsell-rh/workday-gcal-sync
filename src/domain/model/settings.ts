@@ -5,6 +5,8 @@ export interface SyncSettings {
   readonly titleTemplate: string;
   readonly calendarIds: string[]; // ['primary'] or specific calendar IDs
   readonly workdayAbsenceUrl: string;
+  readonly autoSyncEnabled: boolean;
+  readonly autoSyncIntervalMinutes: number; // 15, 30, 60, 120, 240
 }
 
 export const DEFAULT_SETTINGS: SyncSettings = {
@@ -12,6 +14,8 @@ export const DEFAULT_SETTINGS: SyncSettings = {
   titleTemplate: 'PTO - {type}',
   calendarIds: ['primary'],
   workdayAbsenceUrl: 'https://wd5.myworkday.com/redhat/d/task/2997$276.htmld',
+  autoSyncEnabled: false,
+  autoSyncIntervalMinutes: 60,
 };
 
 /**

@@ -58,5 +58,7 @@ describe('DEFAULT_SETTINGS', () => {
     expect(DEFAULT_SETTINGS.titleTemplate).toBe('PTO - {type}');
     expect(DEFAULT_SETTINGS.calendarIds).toEqual(['primary']);
     expect(DEFAULT_SETTINGS.workdayAbsenceUrl).toContain('myworkday.com');
+    expect(DEFAULT_SETTINGS.autoSyncEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.autoSyncIntervalMinutes).toBe(60);
   });
 });

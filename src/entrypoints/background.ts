@@ -430,6 +430,11 @@ async function runSync() {
     syncState.lastResult = result;
     syncState.preview = null; // clear preview after successful sync
 
+    // Show notification for manual sync if UI is not open
+    if (result && (result.entriesSynced > 0 || (result.errors && result.errors.length > 0))) {
+      showSyncNotification(result, false);
+    }
+
     if (result && result.errors.length > 0) {
       appendLog(
         `${result.errors.length} ${result.errors.length === 1 ? 'entry' : 'entries'} could not be synced:`,
@@ -447,6 +452,154 @@ async function runSync() {
   }
 }
 
+// --- Auto-sync alarm management ---
+
+const AUTO_SYNC_ALARM_NAME = 'auto-sync';
+
+async function setupAutoSyncAlarm() {
+  const settings: SyncSettings = await settingsStore.getSettings();
+  if (settings.autoSyncEnabled) {
+    await chrome.alarms.create(AUTO_SYNC_ALARM_NAME, {
+      periodInMinutes: settings.autoSyncIntervalMinutes,
+    });
+    console.log(
+      `[PTO Sync] Auto-sync alarm set: every ${settings.autoSyncIntervalMinutes} minutes`,
+    );
+  } else {
+    await chrome.alarms.clear(AUTO_SYNC_ALARM_NAME);
+    console.log('[PTO Sync] Auto-sync alarm cleared');
+  }
+}
+
+async function runAutoSync() {
+  if (syncState.status === 'syncing' || syncState.status === 'awaiting-sso') {
+    console.log('[PTO Sync] Auto-sync skipped: sync already in progress');
+    return;
+  }
+
+  console.log('[PTO Sync] Auto-sync starting...');
+
+  syncState = {
+    status: 'syncing',
+    log: [],
+    lastResult: null,
+    error: null,
+    progress: null,
+    preview: null,
+  };
+
+  appendLog('Auto-sync starting...');
+
+  try {
+    const settings: SyncSettings = await settingsStore.getSettings();
+    const eventBus = createEventBus();
+
+    eventBus.subscribe((event: DomainEvent) => {
+      switch (event.type) {
+        case 'EntrySkipped':
+          appendLog(`Skipped: ${event.date} - ${humanizeSkipReason(event.reason)}`);
+          break;
+        case 'CalendarEventCreated':
+          appendLog(`Created: ${event.summary} (${event.date})`, 'success');
+          break;
+        case 'EntryResynced':
+          appendLog(`Re-synced: ${event.date} (${event.reason})`, 'info');
+          break;
+        case 'SyncCompleted':
+          appendLog(
+            `Done! ${event.entriesSynced} synced, ${event.entriesSkipped} already on calendar`,
+            'success',
+          );
+          break;
+        case 'SyncFailed':
+          appendLog(`Auto-sync failed: ${event.error}`, 'error');
+          break;
+      }
+    });
+
+    const storage = createChromeStorageAdapter();
+    const calendarIds =
+      settings.calendarIds && settings.calendarIds.length > 0
+        ? settings.calendarIds
+        : DEFAULT_SETTINGS.calendarIds;
+
+    let calendarTarget;
+    if (calendarIds.length === 1) {
+      calendarTarget = createGoogleCalendarAdapter(getAuthToken, {
+        calendarId: calendarIds[0],
+      });
+    } else {
+      const targets = calendarIds.map((id) =>
+        createGoogleCalendarAdapter(getAuthToken, { calendarId: id }),
+      );
+      calendarTarget = createMultiCalendarTarget(targets);
+    }
+
+    const service = createSyncService({
+      timeOffSource: createAutoTimeOffSource(
+        settings.workdayAbsenceUrl || DEFAULT_SETTINGS.workdayAbsenceUrl,
+      ),
+      calendarTarget,
+      syncStateStore: storage,
+      logger: createConsoleLogger(),
+      eventBus,
+      settings,
+    });
+
+    await service.sync();
+
+    const result = await storage.getLastSyncResult();
+    syncState.status = 'completed';
+    syncState.lastResult = result;
+    syncState.preview = null;
+
+    // Show notification if something changed
+    if (result && (result.entriesSynced > 0 || (result.errors && result.errors.length > 0))) {
+      showSyncNotification(result, true);
+    }
+
+    console.log('[PTO Sync] Auto-sync completed successfully');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    syncState.status = 'failed';
+    syncState.error = message;
+    appendLog(message, 'error');
+    console.error('[PTO Sync] Auto-sync failed:', message);
+  }
+}
+
+// --- Notifications ---
+
+function showSyncNotification(result: SyncResult, isAutoSync: boolean) {
+  const synced = result.entriesSynced;
+  const errorCount = result.errors?.length ?? 0;
+
+  // Don't notify if nothing happened
+  if (synced === 0 && errorCount === 0) return;
+
+  // For manual sync, only notify if UI is not open
+  if (!isAutoSync) {
+    const views = chrome.extension?.getViews?.() ?? [];
+    if (views.length > 0) return;
+  }
+
+  let message: string;
+  if (synced > 0 && errorCount > 0) {
+    message = `${synced} PTO ${synced === 1 ? 'event' : 'events'} added to your calendar. ${errorCount} ${errorCount === 1 ? 'error' : 'errors'} occurred.`;
+  } else if (synced > 0) {
+    message = `${synced} new PTO ${synced === 1 ? 'event' : 'events'} added to your calendar.`;
+  } else {
+    message = `Sync completed with ${errorCount} ${errorCount === 1 ? 'error' : 'errors'}.`;
+  }
+
+  chrome.notifications.create('sync-complete', {
+    type: 'basic',
+    iconUrl: '',
+    title: 'PTO Sync',
+    message,
+  });
+}
+
 // --- Message handler ---
 
 export default defineBackground(() => {
@@ -456,6 +609,16 @@ export default defineBackground(() => {
   if (chrome.sidePanel) {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   }
+
+  // Set up auto-sync alarm on startup
+  setupAutoSyncAlarm();
+
+  // Listen for alarm events
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === AUTO_SYNC_ALARM_NAME) {
+      runAutoSync();
+    }
+  });
 
   browser.runtime.onMessage.addListener(
     (message: { type: string; settings?: SyncSettings; date?: string }, _sender, sendResponse) => {
@@ -585,7 +748,11 @@ export default defineBackground(() => {
         }
         settingsStore
           .saveSettings(message.settings)
-          .then(() => sendResponse({ success: true }))
+          .then(() => {
+            // Update auto-sync alarm when settings change
+            setupAutoSyncAlarm();
+            sendResponse({ success: true });
+          })
           .catch((err: Error) => sendResponse({ success: false, error: err.message }));
         return true;
       }

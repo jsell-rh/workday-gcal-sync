@@ -42,6 +42,9 @@ initSettingsUI({
   titlePreview: document.getElementById('title-preview')!,
   calendarCheckboxes: document.getElementById('calendar-checkboxes')!,
   workdayUrlInput: document.getElementById('workday-url') as HTMLInputElement,
+  autoSyncCheckbox: document.getElementById('auto-sync-checkbox') as HTMLInputElement,
+  autoSyncIntervalSelect: document.getElementById('auto-sync-interval') as HTMLSelectElement,
+  autoSyncIntervalGroup: document.getElementById('auto-sync-interval-group')!,
   saveBtn: document.getElementById('save-settings') as HTMLButtonElement,
   settingsStatus: document.getElementById('settings-status')!,
 });

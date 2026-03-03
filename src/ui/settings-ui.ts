@@ -10,6 +10,9 @@ export interface SettingsUIElements {
   titlePreview: HTMLElement;
   calendarCheckboxes: HTMLElement;
   workdayUrlInput: HTMLInputElement;
+  autoSyncCheckbox: HTMLInputElement;
+  autoSyncIntervalSelect: HTMLSelectElement;
+  autoSyncIntervalGroup: HTMLElement;
   saveBtn: HTMLButtonElement;
   settingsStatus: HTMLElement;
 }
@@ -23,6 +26,9 @@ export function initSettingsUI(elements: SettingsUIElements) {
     titlePreview,
     calendarCheckboxes,
     workdayUrlInput,
+    autoSyncCheckbox,
+    autoSyncIntervalSelect,
+    autoSyncIntervalGroup,
     saveBtn,
     settingsStatus,
   } = elements;
@@ -68,6 +74,11 @@ export function initSettingsUI(elements: SettingsUIElements) {
   titleTemplateInput.addEventListener('blur', validateTitleTemplate);
   workdayUrlInput.addEventListener('blur', validateWorkdayUrl);
 
+  // --- Auto-sync toggle ---
+  autoSyncCheckbox.addEventListener('change', () => {
+    autoSyncIntervalGroup.classList.toggle('hidden', !autoSyncCheckbox.checked);
+  });
+
   // --- Title preview ---
   function updateTitlePreview() {
     const template = titleTemplateInput.value || DEFAULT_SETTINGS.titleTemplate;
@@ -98,6 +109,9 @@ export function initSettingsUI(elements: SettingsUIElements) {
         visibilitySelect.value = settings.eventVisibility;
         titleTemplateInput.value = settings.titleTemplate;
         workdayUrlInput.value = settings.workdayAbsenceUrl;
+        autoSyncCheckbox.checked = settings.autoSyncEnabled;
+        autoSyncIntervalSelect.value = String(settings.autoSyncIntervalMinutes);
+        autoSyncIntervalGroup.classList.toggle('hidden', !settings.autoSyncEnabled);
 
         // Check the stored calendar selections if calendars are loaded
         if (calendarsLoaded) {
@@ -223,6 +237,9 @@ export function initSettingsUI(elements: SettingsUIElements) {
       titleTemplate: titleTemplateInput.value || DEFAULT_SETTINGS.titleTemplate,
       calendarIds: getSelectedCalendarIds(),
       workdayAbsenceUrl: workdayUrlInput.value || DEFAULT_SETTINGS.workdayAbsenceUrl,
+      autoSyncEnabled: autoSyncCheckbox.checked,
+      autoSyncIntervalMinutes:
+        Number(autoSyncIntervalSelect.value) || DEFAULT_SETTINGS.autoSyncIntervalMinutes,
     };
 
     saveBtn.disabled = true;
