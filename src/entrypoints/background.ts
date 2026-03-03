@@ -363,11 +363,19 @@ function getAuthTokenChrome(interactive: boolean): Promise<string> {
  */
 
 // Firefox uses a separate "Web application" OAuth client.
-// TODO: Replace with your Web Application OAuth client ID from Google Cloud Console.
 const FIREFOX_OAUTH_CLIENT_ID =
   '5968968327-us9dghstv519tdgr47cre3fj1k02l7rg.apps.googleusercontent.com';
 
+// In-memory token cache for Firefox (Chrome caches via chrome.identity)
+let cachedFirefoxToken: string | null = null;
+let cachedFirefoxTokenExpiry = 0;
+
 async function getAuthTokenFirefox(interactive: boolean): Promise<string> {
+  // Return cached token if still valid (with 5-minute safety margin)
+  if (cachedFirefoxToken && Date.now() < cachedFirefoxTokenExpiry - 300000) {
+    return cachedFirefoxToken;
+  }
+
   const redirectUrl = browser.identity.getRedirectURL();
   const scopes = [
     'https://www.googleapis.com/auth/calendar.events',
@@ -390,13 +398,19 @@ async function getAuthTokenFirefox(interactive: boolean): Promise<string> {
       interactive,
     });
 
-    // Parse the access token from the redirect URL's hash fragment
+    // Parse the access token and expiry from the redirect URL's hash fragment
     const url = new URL(responseUrl);
     const params = new URLSearchParams(url.hash.substring(1));
     const token = params.get('access_token');
     if (!token) {
       throw new Error('No access token found in OAuth response');
     }
+
+    // Cache the token. Google implicit grant tokens last 3600 seconds (1 hour).
+    const expiresIn = parseInt(params.get('expires_in') ?? '3600', 10);
+    cachedFirefoxToken = token;
+    cachedFirefoxTokenExpiry = Date.now() + expiresIn * 1000;
+
     return token;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -408,6 +422,12 @@ async function getAuthTokenFirefox(interactive: boolean): Promise<string> {
     }
     throw error;
   }
+}
+
+/** Clears the cached Firefox token (used on 401 retry and reset) */
+function clearFirefoxTokenCache() {
+  cachedFirefoxToken = null;
+  cachedFirefoxTokenExpiry = 0;
 }
 
 function getAuthToken(): Promise<string> {
@@ -473,12 +493,14 @@ async function runPreview() {
 
     let calendarTarget;
     if (calendarIds.length === 1) {
-      calendarTarget = createGoogleCalendarAdapter(getAuthToken, {
-        calendarId: calendarIds[0],
-      });
+      calendarTarget = createGoogleCalendarAdapter(
+        getAuthToken,
+        { calendarId: calendarIds[0] },
+        clearFirefoxTokenCache,
+      );
     } else {
       const targets = calendarIds.map((id) =>
-        createGoogleCalendarAdapter(getAuthToken, { calendarId: id }),
+        createGoogleCalendarAdapter(getAuthToken, { calendarId: id }, clearFirefoxTokenCache),
       );
       calendarTarget = createMultiCalendarTarget(targets);
     }
@@ -607,12 +629,14 @@ async function runSync() {
 
     let calendarTarget;
     if (calendarIds.length === 1) {
-      calendarTarget = createGoogleCalendarAdapter(getAuthToken, {
-        calendarId: calendarIds[0],
-      });
+      calendarTarget = createGoogleCalendarAdapter(
+        getAuthToken,
+        { calendarId: calendarIds[0] },
+        clearFirefoxTokenCache,
+      );
     } else {
       const targets = calendarIds.map((id) =>
-        createGoogleCalendarAdapter(getAuthToken, { calendarId: id }),
+        createGoogleCalendarAdapter(getAuthToken, { calendarId: id }, clearFirefoxTokenCache),
       );
       calendarTarget = createMultiCalendarTarget(targets);
     }
@@ -743,12 +767,14 @@ async function runAutoSync() {
 
     let calendarTarget;
     if (calendarIds.length === 1) {
-      calendarTarget = createGoogleCalendarAdapter(getAuthToken, {
-        calendarId: calendarIds[0],
-      });
+      calendarTarget = createGoogleCalendarAdapter(
+        getAuthToken,
+        { calendarId: calendarIds[0] },
+        clearFirefoxTokenCache,
+      );
     } else {
       const targets = calendarIds.map((id) =>
-        createGoogleCalendarAdapter(getAuthToken, { calendarId: id }),
+        createGoogleCalendarAdapter(getAuthToken, { calendarId: id }, clearFirefoxTokenCache),
       );
       calendarTarget = createMultiCalendarTarget(targets);
     }
@@ -921,9 +947,11 @@ export default defineBackground(() => {
               // Delete from all target calendars
               for (const calId of ids) {
                 try {
-                  const target = createGoogleCalendarAdapter(getAuthToken, {
-                    calendarId: calId,
-                  });
+                  const target = createGoogleCalendarAdapter(
+                    getAuthToken,
+                    { calendarId: calId },
+                    clearFirefoxTokenCache,
+                  );
                   await target.deleteEvent(eventId);
                 } catch {
                   // Event may not exist on this calendar — that's ok
@@ -955,9 +983,11 @@ export default defineBackground(() => {
               if (entry.eventId && entry.eventId !== 'existing') {
                 for (const calId of ids) {
                   try {
-                    const target = createGoogleCalendarAdapter(getAuthToken, {
-                      calendarId: calId,
-                    });
+                    const target = createGoogleCalendarAdapter(
+                      getAuthToken,
+                      { calendarId: calId },
+                      clearFirefoxTokenCache,
+                    );
                     await target.deleteEvent(entry.eventId);
                   } catch {
                     // Event may not exist on this calendar
@@ -1071,6 +1101,8 @@ export default defineBackground(() => {
                 // No token to revoke — that's fine
               }
             }
+            // Clear Firefox token cache
+            clearFirefoxTokenCache();
             // Reset in-memory state
             syncState = {
               status: 'idle',

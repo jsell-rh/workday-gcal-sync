@@ -67,6 +67,7 @@ function buildEventBody(event: CalendarEvent): Record<string, unknown> {
 export function createGoogleCalendarAdapter(
   getAuthToken: () => Promise<string>,
   config: GoogleCalendarConfig = {},
+  onTokenInvalid?: () => void,
 ): CalendarTarget {
   const calendarId = encodeURIComponent(config.calendarId ?? 'primary');
 
@@ -83,6 +84,7 @@ export function createGoogleCalendarAdapter(
 
     // Token expired — clear cache and retry once
     if (response.status === 401) {
+      // Clear Chrome's built-in token cache
       if (
         typeof chrome !== 'undefined' &&
         chrome.identity &&
@@ -92,6 +94,8 @@ export function createGoogleCalendarAdapter(
           chrome.identity.removeCachedAuthToken({ token }, () => resolve());
         });
       }
+      // Notify caller to clear any custom token cache (e.g. Firefox)
+      onTokenInvalid?.();
       token = await getAuthToken();
       response = await fetch(url, {
         ...options,
