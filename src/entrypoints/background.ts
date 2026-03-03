@@ -354,38 +354,60 @@ function getAuthTokenChrome(interactive: boolean): Promise<string> {
 /**
  * Firefox path: use browser.identity.launchWebAuthFlow.
  *
- * Google OAuth2 is used with the same client_id. The redirect URL is
- * provided by the browser via `browser.identity.getRedirectURL()`.
- * The access token comes back in the URL hash fragment.
+ * Firefox requires a separate "Web application" OAuth client in Google Cloud
+ * Console (Chrome Extension type doesn't allow redirect URIs). The redirect
+ * URL from `browser.identity.getRedirectURL()` must be added as an authorized
+ * redirect URI in that Web application client.
+ *
+ * The access token comes back in the URL hash fragment (implicit grant).
  */
+
+// Firefox uses a separate "Web application" OAuth client.
+// TODO: Replace with your Web Application OAuth client ID from Google Cloud Console.
+const FIREFOX_OAUTH_CLIENT_ID =
+  '5968968327-us9dghstv519tdgr47cre3fj1k02l7rg.apps.googleusercontent.com';
+
 async function getAuthTokenFirefox(interactive: boolean): Promise<string> {
-  const clientId = '5968968327-njl8ho7kcp1876frdljpspl72h8es7f2.apps.googleusercontent.com';
   const redirectUrl = browser.identity.getRedirectURL();
   const scopes = [
     'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/calendar.readonly',
   ].join(' ');
 
+  // Log the redirect URL for debugging
+  console.info('[PTO Sync] Firefox OAuth redirect URL:', redirectUrl);
+
   const authUrl =
     `https://accounts.google.com/o/oauth2/v2/auth` +
-    `?client_id=${encodeURIComponent(clientId)}` +
+    `?client_id=${encodeURIComponent(FIREFOX_OAUTH_CLIENT_ID)}` +
     `&response_type=token` +
     `&redirect_uri=${encodeURIComponent(redirectUrl)}` +
     `&scope=${encodeURIComponent(scopes)}`;
 
-  const responseUrl = await browser.identity.launchWebAuthFlow({
-    url: authUrl,
-    interactive,
-  });
+  try {
+    const responseUrl = await browser.identity.launchWebAuthFlow({
+      url: authUrl,
+      interactive,
+    });
 
-  // Parse the access token from the redirect URL's hash fragment
-  const url = new URL(responseUrl);
-  const params = new URLSearchParams(url.hash.substring(1));
-  const token = params.get('access_token');
-  if (!token) {
-    throw new Error('No access token found in OAuth response');
+    // Parse the access token from the redirect URL's hash fragment
+    const url = new URL(responseUrl);
+    const params = new URLSearchParams(url.hash.substring(1));
+    const token = params.get('access_token');
+    if (!token) {
+      throw new Error('No access token found in OAuth response');
+    }
+    return token;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/redirect_uri_mismatch|invalid/i.test(message)) {
+      throw new Error(
+        `Google OAuth redirect URI mismatch. Add this URL as an authorized redirect URI ` +
+          `in your Web Application OAuth client: ${redirectUrl}`,
+      );
+    }
+    throw error;
   }
-  return token;
 }
 
 function getAuthToken(): Promise<string> {
