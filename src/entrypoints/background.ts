@@ -23,11 +23,17 @@ interface LogEntry {
   level: 'info' | 'error' | 'success';
 }
 
+interface SyncProgress {
+  current: number;
+  total: number;
+}
+
 interface SyncState {
   status: 'idle' | 'syncing' | 'awaiting-sso' | 'completed' | 'failed';
   log: LogEntry[];
   lastResult: SyncResult | null;
   error: string | null;
+  progress: SyncProgress | null;
 }
 
 let syncState: SyncState = {
@@ -35,6 +41,7 @@ let syncState: SyncState = {
   log: [],
   lastResult: null,
   error: null,
+  progress: null,
 };
 
 function appendLog(message: string, level: LogEntry['level'] = 'info') {
@@ -43,6 +50,12 @@ function appendLog(message: string, level: LogEntry['level'] = 'info') {
     message,
     level,
   });
+}
+
+function humanizeSkipReason(reason: string): string {
+  if (/already synced.*local state/i.test(reason)) return 'already on calendar';
+  if (/already exists in calendar/i.test(reason)) return 'already on calendar';
+  return reason;
 }
 
 // --- Tab helpers ---
@@ -172,7 +185,7 @@ function createAutoTimeOffSource(workdayAbsenceUrl: string): TimeOffSource {
         // Good — proceed to scrape
       } else if (result === 'needs-sso') {
         syncState.status = 'awaiting-sso';
-        appendLog('SSO login required. Opening tab for you to sign in...', 'info');
+        appendLog('Sign-in required. Opening Workday for you to log in...', 'info');
         await browser.tabs.update(tabId, { active: true });
 
         // Now wait for the user to complete SSO (long timeout)
@@ -182,20 +195,20 @@ function createAutoTimeOffSource(workdayAbsenceUrl: string): TimeOffSource {
         });
 
         if (ssoResult !== 'ready') {
-          throw new Error('Timed out waiting for SSO login.');
+          throw new Error('Timed out waiting for Workday sign-in. Please try again.');
         }
 
-        appendLog('SSO login complete!', 'success');
+        appendLog('Sign-in complete!', 'success');
         syncState.status = 'syncing';
 
         if (createdTab) {
           await browser.tabs.update(tabId, { active: false });
         }
       } else {
-        throw new Error('Timed out waiting for Workday absence page to load.');
+        throw new Error('Workday took too long to load. Please try again.');
       }
 
-      appendLog('Scraping PTO entries...');
+      appendLog('Reading PTO entries from Workday...');
       const response = await browser.tabs.sendMessage(tabId, {
         type: 'SCRAPE_PTO',
       });
@@ -205,7 +218,7 @@ function createAutoTimeOffSource(workdayAbsenceUrl: string): TimeOffSource {
       }
 
       if (!response || !response.success) {
-        throw new Error(response?.error ?? 'Failed to scrape PTO data from Workday.');
+        throw new Error(response?.error ?? 'Could not read PTO data from Workday.');
       }
 
       return response.entries;
@@ -235,7 +248,7 @@ function getAuthToken(): Promise<string> {
 
 // --- Run sync ---
 
-async function runSync() {
+async function runSync(options: { reconcile?: boolean } = {}) {
   if (syncState.status === 'syncing' || syncState.status === 'awaiting-sso') {
     return; // Already in progress
   }
@@ -245,9 +258,10 @@ async function runSync() {
     log: [],
     lastResult: null,
     error: null,
+    progress: null,
   };
 
-  appendLog('Starting sync...');
+  appendLog(options.reconcile ? 'Starting reconciliation...' : 'Starting sync...');
 
   try {
     // Load settings before syncing
@@ -258,13 +272,15 @@ async function runSync() {
     eventBus.subscribe((event: DomainEvent) => {
       switch (event.type) {
         case 'EntriesParsed':
-          appendLog(`Found ${event.count} entries (${event.syncableCount} syncable)`);
+          appendLog(`Found ${event.syncableCount} PTO entries to process`);
+          syncState.progress = { current: 0, total: event.syncableCount };
           break;
         case 'EntryProcessing':
-          appendLog(`Processing ${event.index}/${event.total}: ${event.date} (${event.entryType})`);
+          syncState.progress = { current: event.index, total: event.total };
+          appendLog(`Processing ${event.date} (${event.entryType})`);
           break;
         case 'EntrySkipped':
-          appendLog(`Skipped: ${event.date} - ${event.reason}`);
+          appendLog(`Skipped: ${event.date} - ${humanizeSkipReason(event.reason)}`);
           break;
         case 'EntryFailed':
           appendLog(`Error: ${event.date} - ${event.error}`, 'error');
@@ -272,17 +288,20 @@ async function runSync() {
         case 'CalendarEventCreated':
           appendLog(`Created: ${event.summary} (${event.date})`, 'success');
           break;
+        case 'EntryResynced':
+          appendLog(`Re-synced: ${event.date} (${event.reason})`, 'info');
+          break;
         case 'CalendarEventAlreadyExists':
-          appendLog(`Skipped: ${event.date} (already exists)`);
+          appendLog(`${event.date} - already on calendar`);
           break;
         case 'SyncCompleted':
           appendLog(
-            `Done! ${event.entriesSynced} synced, ${event.entriesSkipped} skipped`,
+            `Done! ${event.entriesSynced} synced, ${event.entriesSkipped} already on calendar`,
             'success',
           );
           break;
         case 'SyncFailed':
-          appendLog(`Failed: ${event.error}`, 'error');
+          appendLog(`Sync failed: ${event.error}`, 'error');
           break;
       }
     });
@@ -316,6 +335,7 @@ async function runSync() {
       logger: createConsoleLogger(),
       eventBus,
       settings,
+      reconcileWithCalendar: options.reconcile ?? false,
     });
 
     await service.sync();
@@ -325,7 +345,10 @@ async function runSync() {
     syncState.lastResult = result;
 
     if (result && result.errors.length > 0) {
-      appendLog(`${result.errors.length} entries failed:`, 'error');
+      appendLog(
+        `${result.errors.length} ${result.errors.length === 1 ? 'entry' : 'entries'} could not be synced:`,
+        'error',
+      );
       for (const err of result.errors) {
         appendLog(`  ${err.entryDate}: ${err.message}`, 'error');
       }
@@ -358,12 +381,21 @@ export default defineBackground(() => {
         return false;
       }
 
+      if (message.type === 'START_RECONCILE') {
+        runSync({ reconcile: true }).then(() => {
+          // Reconcile finished (state already updated)
+        });
+        sendResponse({ started: true });
+        return false;
+      }
+
       if (message.type === 'GET_SYNC_STATUS') {
         sendResponse({
           status: syncState.status,
           log: syncState.log,
           lastResult: syncState.lastResult,
           error: syncState.error,
+          progress: syncState.progress,
         });
         return false;
       }

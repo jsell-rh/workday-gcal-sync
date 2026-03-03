@@ -16,10 +16,19 @@ export interface SyncServiceDeps {
   logger: Logger;
   eventBus: EventBus;
   settings?: SyncSettings;
+  reconcileWithCalendar?: boolean;
 }
 
 export function createSyncService(deps: SyncServiceDeps) {
-  const { timeOffSource, calendarTarget, syncStateStore, logger, eventBus, settings } = deps;
+  const {
+    timeOffSource,
+    calendarTarget,
+    syncStateStore,
+    logger,
+    eventBus,
+    settings,
+    reconcileWithCalendar = false,
+  } = deps;
 
   return {
     async sync(): Promise<void> {
@@ -73,7 +82,13 @@ export function createSyncService(deps: SyncServiceDeps) {
         // 3. Sync each entry
         let synced = 0;
         let skipped = 0;
+        let resynced = 0;
         const errors: SyncError[] = [];
+
+        const eventOptions = {
+          titleTemplate: settings?.titleTemplate,
+          eventVisibility: settings?.eventVisibility,
+        };
 
         for (let i = 0; i < syncable.length; i++) {
           const entry = syncable[i];
@@ -93,22 +108,62 @@ export function createSyncService(deps: SyncServiceDeps) {
           });
 
           if (syncedDates.has(entry.date)) {
-            eventBus.publish(
-              createDomainEvent('EntrySkipped', {
-                date: entry.date,
-                reason: 'already synced (from local state)',
-              }),
-            );
-            logger.debug('Event already synced, skipping', { date: entry.date });
-            skipped++;
-            continue;
+            if (reconcileWithCalendar) {
+              // Verify the event still exists on the calendar
+              const storedEventId = await syncStateStore.getEventId(entry.date);
+              if (storedEventId && storedEventId !== 'existing') {
+                const calEvent = calendarEventFromTimeOff(entry, eventOptions);
+                const stillExists = await calendarTarget.eventExists(
+                  calEvent.startDate,
+                  calEvent.summary,
+                );
+                if (!stillExists) {
+                  // Event was deleted from calendar — remove from local state and re-sync
+                  await syncStateStore.removeSynced(entry.date);
+                  eventBus.publish(
+                    createDomainEvent('EntryResynced', {
+                      date: entry.date,
+                      reason: 'event was deleted from calendar',
+                    }),
+                  );
+                  logger.info('Event deleted from calendar, re-syncing', { date: entry.date });
+                  resynced++;
+                  // Fall through to create the event again
+                } else {
+                  eventBus.publish(
+                    createDomainEvent('EntrySkipped', {
+                      date: entry.date,
+                      reason: 'already on calendar (verified)',
+                    }),
+                  );
+                  skipped++;
+                  continue;
+                }
+              } else {
+                eventBus.publish(
+                  createDomainEvent('EntrySkipped', {
+                    date: entry.date,
+                    reason: 'already synced (from local state)',
+                  }),
+                );
+                skipped++;
+                continue;
+              }
+            } else {
+              eventBus.publish(
+                createDomainEvent('EntrySkipped', {
+                  date: entry.date,
+                  reason: 'already synced (from local state)',
+                }),
+              );
+              logger.debug('Event already synced, skipping', { date: entry.date });
+              skipped++;
+              continue;
+            }
           }
 
           try {
-            const calEvent = calendarEventFromTimeOff(entry, {
-              titleTemplate: settings?.titleTemplate,
-              eventVisibility: settings?.eventVisibility,
-            });
+            const calEvent = calendarEventFromTimeOff(entry, eventOptions);
             const exists = await calendarTarget.eventExists(calEvent.startDate, calEvent.summary);
 
             if (exists) {
@@ -161,6 +216,7 @@ export function createSyncService(deps: SyncServiceDeps) {
           entriesFound: entries.length,
           entriesSynced: synced,
           entriesSkipped: skipped,
+          entriesResynced: resynced,
           errors,
         });
         await syncStateStore.saveLastSyncResult(result);

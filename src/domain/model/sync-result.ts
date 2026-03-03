@@ -3,6 +3,7 @@ export interface SyncResult {
   readonly entriesFound: number;
   readonly entriesSynced: number;
   readonly entriesSkipped: number;
+  readonly entriesResynced: number;
   readonly errors: SyncError[];
 }
 
@@ -11,9 +12,12 @@ export interface SyncError {
   readonly message: string;
 }
 
-export function createSyncResult(partial: Omit<SyncResult, 'syncedAt'>): SyncResult {
+export function createSyncResult(
+  partial: Omit<SyncResult, 'syncedAt' | 'entriesResynced'> & { entriesResynced?: number },
+): SyncResult {
   return {
     ...partial,
+    entriesResynced: partial.entriesResynced ?? 0,
     syncedAt: new Date().toISOString(),
   };
 }

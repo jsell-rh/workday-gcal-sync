@@ -4,6 +4,7 @@ export type DomainEvent =
   | EntryProcessing
   | EntrySkipped
   | EntryFailed
+  | EntryResynced
   | CalendarEventCreated
   | CalendarEventAlreadyExists
   | SyncCompleted
@@ -43,6 +44,13 @@ export interface EntryFailed {
   readonly timestamp: string;
   readonly date: string;
   readonly error: string;
+}
+
+export interface EntryResynced {
+  readonly type: 'EntryResynced';
+  readonly timestamp: string;
+  readonly date: string;
+  readonly reason: string;
 }
 
 export interface CalendarEventCreated {

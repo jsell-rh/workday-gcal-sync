@@ -35,6 +35,7 @@ export function initSettingsUI(elements: SettingsUIElements) {
     isOpen = !isOpen;
     settingsPanel.classList.toggle('hidden', !isOpen);
     settingsToggle.setAttribute('aria-expanded', String(isOpen));
+    settingsToggle.setAttribute('aria-label', isOpen ? 'Close settings' : 'Open settings');
 
     if (isOpen) {
       loadSettings();
@@ -43,6 +44,29 @@ export function initSettingsUI(elements: SettingsUIElements) {
       }
     }
   });
+
+  // --- Validation ---
+  function validateTitleTemplate(): boolean {
+    const value = titleTemplateInput.value.trim();
+    const isValid = value.length > 0;
+    titleTemplateInput.classList.toggle('invalid', !isValid);
+    return isValid;
+  }
+
+  function validateWorkdayUrl(): boolean {
+    const value = workdayUrlInput.value.trim();
+    if (value.length === 0) {
+      // Empty is okay — we fall back to default
+      workdayUrlInput.classList.remove('invalid');
+      return true;
+    }
+    const isValid = /^https:\/\/.*\.myworkday\.com\//.test(value);
+    workdayUrlInput.classList.toggle('invalid', !isValid);
+    return isValid;
+  }
+
+  titleTemplateInput.addEventListener('blur', validateTitleTemplate);
+  workdayUrlInput.addEventListener('blur', validateWorkdayUrl);
 
   // --- Title preview ---
   function updateTitlePreview() {
@@ -55,7 +79,13 @@ export function initSettingsUI(elements: SettingsUIElements) {
     titlePreview.textContent = preview;
   }
 
-  titleTemplateInput.addEventListener('input', updateTitlePreview);
+  titleTemplateInput.addEventListener('input', () => {
+    updateTitlePreview();
+    // Clear validation error while typing
+    if (titleTemplateInput.value.trim().length > 0) {
+      titleTemplateInput.classList.remove('invalid');
+    }
+  });
 
   // --- Load settings from background ---
   async function loadSettings() {
@@ -99,7 +129,11 @@ export function initSettingsUI(elements: SettingsUIElements) {
 
   // --- Load calendars ---
   async function loadCalendars() {
-    calendarCheckboxes.innerHTML = '<span style="color:#888;font-size:12px;">Loading...</span>';
+    calendarCheckboxes.innerHTML = '';
+    const loading = document.createElement('span');
+    loading.className = 'calendar-loading';
+    loading.textContent = 'Loading calendars...';
+    calendarCheckboxes.appendChild(loading);
 
     try {
       const response: { success: boolean; calendars?: CalendarListEntry[]; error?: string } =
@@ -130,15 +164,25 @@ export function initSettingsUI(elements: SettingsUIElements) {
           applyCalendarSelections(settingsResponse.settings.calendarIds);
         }
       } else {
-        calendarCheckboxes.innerHTML = '';
-        appendCalendarCheckbox('primary', 'Primary (default)', true);
-        calendarsLoaded = true;
+        showCalendarFallback(response.error);
       }
     } catch {
-      calendarCheckboxes.innerHTML = '';
-      appendCalendarCheckbox('primary', 'Primary (default)', true);
-      calendarsLoaded = true;
+      showCalendarFallback();
     }
+  }
+
+  function showCalendarFallback(error?: string) {
+    calendarCheckboxes.innerHTML = '';
+
+    if (error && /auth|oauth|token|sign.in/i.test(error)) {
+      const msg = document.createElement('div');
+      msg.className = 'calendar-empty';
+      msg.textContent = 'Could not load calendars. Google sign-in will be requested when you sync.';
+      calendarCheckboxes.appendChild(msg);
+    }
+
+    appendCalendarCheckbox('primary', 'Primary calendar (default)', true);
+    calendarsLoaded = true;
   }
 
   function appendCalendarCheckbox(value: string, label: string, checked: boolean) {
@@ -165,6 +209,15 @@ export function initSettingsUI(elements: SettingsUIElements) {
 
   // --- Save settings ---
   saveBtn.addEventListener('click', async () => {
+    // Validate before saving
+    const titleValid = validateTitleTemplate();
+    const urlValid = validateWorkdayUrl();
+    if (!titleValid || !urlValid) {
+      settingsStatus.textContent = 'Please fix the errors above.';
+      settingsStatus.className = 'settings-status error';
+      return;
+    }
+
     const settings: SyncSettings = {
       eventVisibility: visibilitySelect.value as SyncSettings['eventVisibility'],
       titleTemplate: titleTemplateInput.value || DEFAULT_SETTINGS.titleTemplate,
