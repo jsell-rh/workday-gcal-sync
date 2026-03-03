@@ -63,8 +63,22 @@ function waitForTabLoad(tabId: number, timeoutMs = 30000): Promise<void> {
 
 async function waitForAbsencePage(tabId: number, timeoutMs = 20000): Promise<boolean> {
   const startTime = Date.now();
+  const pollInterval = 500;
 
   while (Date.now() - startTime < timeoutMs) {
+    // First, check the tab URL directly — no content script needed
+    try {
+      const tab = await browser.tabs.get(tabId);
+      if (tab.url && !tab.url.includes('.myworkday.com/')) {
+        // Redirected away from Workday (SSO login page)
+        return false;
+      }
+    } catch {
+      // Tab may have been closed
+      return false;
+    }
+
+    // Tab is on Workday domain — try asking the content script
     try {
       const response = await browser.tabs.sendMessage(tabId, {
         type: 'CHECK_PAGE_STATUS',
@@ -73,18 +87,34 @@ async function waitForAbsencePage(tabId: number, timeoutMs = 20000): Promise<boo
       if (response?.onAbsencePage) {
         return true;
       }
-
-      if (response && !response.isWorkdayDomain) {
-        return false;
-      }
     } catch {
-      // Content script not ready yet
+      // Content script not ready yet — page still loading/rendering
     }
 
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, pollInterval));
   }
 
   return false;
+}
+
+async function waitForAbsencePageAfterSSO(tabId: number, timeoutMs = 120000): Promise<boolean> {
+  const startTime = Date.now();
+
+  // Phase 1: Wait for the tab to return to Workday domain
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const tab = await browser.tabs.get(tabId);
+      if (tab.url && tab.url.includes('.myworkday.com/')) {
+        break; // Back on Workday — proceed to phase 2
+      }
+    } catch {
+      return false;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  // Phase 2: Wait for the absence page to render
+  return waitForAbsencePage(tabId, Math.max(timeoutMs - (Date.now() - startTime), 5000));
 }
 
 // --- TimeOffSource that manages tabs from the background ---
@@ -132,7 +162,7 @@ function createAutoTimeOffSource(): TimeOffSource {
         appendLog('SSO login required. Opening tab for you to sign in...', 'info');
         await browser.tabs.update(tabId, { active: true });
 
-        pageReady = await waitForAbsencePage(tabId, 120000);
+        pageReady = await waitForAbsencePageAfterSSO(tabId);
 
         if (!pageReady) {
           throw new Error(
