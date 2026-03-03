@@ -34,5 +34,13 @@ export function createMultiCalendarTarget(targets: CalendarTarget[]): CalendarTa
         await targets[i].deleteEvent(ids[i]);
       }
     },
+
+    async findEventByDate(date: string): Promise<string | null> {
+      // Check first calendar only
+      if (targets[0].findEventByDate) {
+        return targets[0].findEventByDate(date);
+      }
+      return null;
+    },
   };
 }

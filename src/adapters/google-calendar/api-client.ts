@@ -54,6 +54,13 @@ function buildEventBody(event: CalendarEvent): Record<string, unknown> {
     }
   }
 
+  body.extendedProperties = {
+    private: {
+      ptoSyncManaged: 'true',
+      ptoSyncDate: event.startDate,
+    },
+  };
+
   return body;
 }
 
@@ -76,7 +83,11 @@ export function createGoogleCalendarAdapter(
 
     // Token expired — clear cache and retry once
     if (response.status === 401) {
-      if (typeof chrome !== 'undefined' && chrome.identity) {
+      if (
+        typeof chrome !== 'undefined' &&
+        chrome.identity &&
+        typeof chrome.identity.removeCachedAuthToken === 'function'
+      ) {
         await new Promise<void>((resolve) => {
           chrome.identity.removeCachedAuthToken({ token }, () => resolve());
         });
@@ -116,17 +127,20 @@ export function createGoogleCalendarAdapter(
       return data.id;
     },
 
-    async eventExists(date: string, summary: string): Promise<boolean> {
-      // Query events on the specific date
-      const timeMin = `${date}T00:00:00Z`;
-      const nextDay = new Date(`${date}T00:00:00Z`);
-      nextDay.setDate(nextDay.getDate() + 1);
-      const timeMax = nextDay.toISOString();
+    async eventExists(date: string, _summary: string): Promise<boolean> {
+      // Use a wide window (previous day to next day in UTC) to account for
+      // timezone differences.  OOO events store local midnight (e.g.
+      // 2025-03-15T00:00:00-05:00) which is 2025-03-15T05:00:00Z in UTC.
+      // A strict UTC-midnight window would miss events in western timezones.
+      const dayBefore = new Date(`${date}T00:00:00Z`);
+      dayBefore.setDate(dayBefore.getDate() - 1);
+      const dayAfter = new Date(`${date}T00:00:00Z`);
+      dayAfter.setDate(dayAfter.getDate() + 2);
 
       const params = new URLSearchParams({
-        timeMin,
-        timeMax,
-        q: summary,
+        timeMin: dayBefore.toISOString(),
+        timeMax: dayAfter.toISOString(),
+        privateExtendedProperty: `ptoSyncDate=${date}`,
         singleEvents: 'true',
         maxResults: '10',
       });
@@ -136,7 +150,7 @@ export function createGoogleCalendarAdapter(
       );
 
       const data = await response.json();
-      return (data.items ?? []).some((item: { summary?: string }) => item.summary === summary);
+      return (data.items ?? []).length > 0;
     },
 
     async deleteEvent(eventId: string): Promise<void> {
@@ -144,6 +158,29 @@ export function createGoogleCalendarAdapter(
         `${CALENDAR_API_BASE}/calendars/${calendarId}/events/${encodeURIComponent(eventId)}`,
         { method: 'DELETE' },
       );
+    },
+
+    async findEventByDate(date: string): Promise<string | null> {
+      const dayBefore = new Date(`${date}T00:00:00Z`);
+      dayBefore.setDate(dayBefore.getDate() - 1);
+      const dayAfter = new Date(`${date}T00:00:00Z`);
+      dayAfter.setDate(dayAfter.getDate() + 2);
+
+      const params = new URLSearchParams({
+        timeMin: dayBefore.toISOString(),
+        timeMax: dayAfter.toISOString(),
+        privateExtendedProperty: `ptoSyncDate=${date}`,
+        singleEvents: 'true',
+        maxResults: '1',
+      });
+
+      const response = await authenticatedFetch(
+        `${CALENDAR_API_BASE}/calendars/${calendarId}/events?${params}`,
+      );
+
+      const data = await response.json();
+      const items = data.items ?? [];
+      return items.length > 0 ? items[0].id : null;
     },
   };
 }

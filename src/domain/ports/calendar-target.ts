@@ -20,4 +20,9 @@ export interface CalendarTarget {
    * Deletes an event by its ID.
    */
   deleteEvent(eventId: string): Promise<void>;
+
+  /**
+   * Finds a managed event by date. Returns the event ID or null.
+   */
+  findEventByDate?(date: string): Promise<string | null>;
 }
