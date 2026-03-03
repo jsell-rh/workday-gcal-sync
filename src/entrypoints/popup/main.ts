@@ -4,7 +4,6 @@ import { initSettingsUI } from '../../ui/settings-ui';
 initSyncUI({
   syncBtn: document.getElementById('sync-btn') as HTMLButtonElement,
   syncBtnText: document.getElementById('sync-btn-text')!,
-  reconcileBtn: document.getElementById('reconcile-btn') as HTMLButtonElement,
   lastSyncValue: document.getElementById('last-sync-value')!,
   syncStats: document.getElementById('sync-stats')!,
   statFound: document.getElementById('stat-found')!,

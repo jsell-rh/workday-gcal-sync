@@ -26,7 +26,6 @@ interface SyncStatusResponse {
 export interface SyncUIElements {
   syncBtn: HTMLButtonElement;
   syncBtnText: HTMLElement;
-  reconcileBtn: HTMLButtonElement;
   lastSyncValue: HTMLElement;
   syncStats: HTMLElement;
   statFound: HTMLElement;
@@ -66,7 +65,6 @@ export function initSyncUI(elements: SyncUIElements) {
   const {
     syncBtn,
     syncBtnText,
-    reconcileBtn,
     lastSyncValue,
     syncStats,
     statFound,
@@ -218,7 +216,6 @@ export function initSyncUI(elements: SyncUIElements) {
       case 'syncing':
       case 'awaiting-sso':
         syncBtn.disabled = true;
-        reconcileBtn.disabled = true;
         showSpinner(true);
         syncBtnText.textContent =
           data.status === 'awaiting-sso' ? 'Waiting for sign-in...' : 'Syncing...';
@@ -229,7 +226,6 @@ export function initSyncUI(elements: SyncUIElements) {
 
       case 'completed':
         syncBtn.disabled = false;
-        reconcileBtn.disabled = false;
         showSpinner(false);
         syncBtnText.textContent = 'Sync PTO Now';
         progressArea.classList.add('hidden');
@@ -243,7 +239,6 @@ export function initSyncUI(elements: SyncUIElements) {
 
       case 'failed':
         syncBtn.disabled = false;
-        reconcileBtn.disabled = false;
         showSpinner(false);
         syncBtnText.textContent = 'Sync PTO Now';
         progressArea.classList.add('hidden');
@@ -255,7 +250,6 @@ export function initSyncUI(elements: SyncUIElements) {
 
       case 'idle':
         syncBtn.disabled = false;
-        reconcileBtn.disabled = false;
         showSpinner(false);
         syncBtnText.textContent = 'Sync PTO Now';
         progressArea.classList.add('hidden');
@@ -284,7 +278,6 @@ export function initSyncUI(elements: SyncUIElements) {
 
   async function startSync() {
     syncBtn.disabled = true;
-    reconcileBtn.disabled = true;
     showSpinner(true);
     syncBtnText.textContent = 'Syncing...';
     logArea.innerHTML = '';
@@ -300,32 +293,6 @@ export function initSyncUI(elements: SyncUIElements) {
       startPolling();
     } catch {
       syncBtn.disabled = false;
-      reconcileBtn.disabled = false;
-      showSpinner(false);
-      syncBtnText.textContent = 'Sync PTO Now';
-      progressArea.classList.add('hidden');
-    }
-  }
-
-  async function startReconcile() {
-    syncBtn.disabled = true;
-    reconcileBtn.disabled = true;
-    showSpinner(true);
-    syncBtnText.textContent = 'Reconciling...';
-    logArea.innerHTML = '';
-    welcomeCard.classList.add('hidden');
-    clearBanners();
-    syncStats.classList.add('hidden');
-    progressArea.classList.remove('hidden');
-    progressBar.style.width = '0%';
-    progressText.textContent = 'Starting reconciliation...';
-
-    try {
-      await browser.runtime.sendMessage({ type: 'START_RECONCILE' });
-      startPolling();
-    } catch {
-      syncBtn.disabled = false;
-      reconcileBtn.disabled = false;
       showSpinner(false);
       syncBtnText.textContent = 'Sync PTO Now';
       progressArea.classList.add('hidden');
@@ -334,7 +301,6 @@ export function initSyncUI(elements: SyncUIElements) {
 
   // --- Event listeners ---
   syncBtn.addEventListener('click', startSync);
-  reconcileBtn.addEventListener('click', startReconcile);
 
   // --- Init: fetch current state on open ---
   async function initStatus() {

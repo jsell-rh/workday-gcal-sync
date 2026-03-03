@@ -248,7 +248,7 @@ function getAuthToken(): Promise<string> {
 
 // --- Run sync ---
 
-async function runSync(options: { reconcile?: boolean } = {}) {
+async function runSync() {
   if (syncState.status === 'syncing' || syncState.status === 'awaiting-sso') {
     return; // Already in progress
   }
@@ -261,7 +261,7 @@ async function runSync(options: { reconcile?: boolean } = {}) {
     progress: null,
   };
 
-  appendLog(options.reconcile ? 'Starting reconciliation...' : 'Starting sync...');
+  appendLog('Starting sync...');
 
   try {
     // Load settings before syncing
@@ -335,7 +335,6 @@ async function runSync(options: { reconcile?: boolean } = {}) {
       logger: createConsoleLogger(),
       eventBus,
       settings,
-      reconcileWithCalendar: options.reconcile ?? false,
     });
 
     await service.sync();
@@ -376,14 +375,6 @@ export default defineBackground(() => {
       if (message.type === 'START_SYNC') {
         runSync().then(() => {
           // Sync finished (state already updated)
-        });
-        sendResponse({ started: true });
-        return false;
-      }
-
-      if (message.type === 'START_RECONCILE') {
-        runSync({ reconcile: true }).then(() => {
-          // Reconcile finished (state already updated)
         });
         sendResponse({ started: true });
         return false;

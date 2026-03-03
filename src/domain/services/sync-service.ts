@@ -16,19 +16,10 @@ export interface SyncServiceDeps {
   logger: Logger;
   eventBus: EventBus;
   settings?: SyncSettings;
-  reconcileWithCalendar?: boolean;
 }
 
 export function createSyncService(deps: SyncServiceDeps) {
-  const {
-    timeOffSource,
-    calendarTarget,
-    syncStateStore,
-    logger,
-    eventBus,
-    settings,
-    reconcileWithCalendar = false,
-  } = deps;
+  const { timeOffSource, calendarTarget, syncStateStore, logger, eventBus, settings } = deps;
 
   return {
     async sync(): Promise<void> {
@@ -108,42 +99,31 @@ export function createSyncService(deps: SyncServiceDeps) {
           });
 
           if (syncedDates.has(entry.date)) {
-            if (reconcileWithCalendar) {
-              // Verify the event still exists on the calendar
-              const storedEventId = await syncStateStore.getEventId(entry.date);
-              if (storedEventId && storedEventId !== 'existing') {
-                const calEvent = calendarEventFromTimeOff(entry, eventOptions);
-                const stillExists = await calendarTarget.eventExists(
-                  calEvent.startDate,
-                  calEvent.summary,
+            // Verify the event still exists on the calendar
+            const storedEventId = await syncStateStore.getEventId(entry.date);
+            if (storedEventId && storedEventId !== 'existing') {
+              const calEvent = calendarEventFromTimeOff(entry, eventOptions);
+              const stillExists = await calendarTarget.eventExists(
+                calEvent.startDate,
+                calEvent.summary,
+              );
+              if (!stillExists) {
+                // Event was deleted from calendar — remove from local state and re-sync
+                await syncStateStore.removeSynced(entry.date);
+                eventBus.publish(
+                  createDomainEvent('EntryResynced', {
+                    date: entry.date,
+                    reason: 'event was deleted from calendar',
+                  }),
                 );
-                if (!stillExists) {
-                  // Event was deleted from calendar — remove from local state and re-sync
-                  await syncStateStore.removeSynced(entry.date);
-                  eventBus.publish(
-                    createDomainEvent('EntryResynced', {
-                      date: entry.date,
-                      reason: 'event was deleted from calendar',
-                    }),
-                  );
-                  logger.info('Event deleted from calendar, re-syncing', { date: entry.date });
-                  resynced++;
-                  // Fall through to create the event again
-                } else {
-                  eventBus.publish(
-                    createDomainEvent('EntrySkipped', {
-                      date: entry.date,
-                      reason: 'already on calendar (verified)',
-                    }),
-                  );
-                  skipped++;
-                  continue;
-                }
+                logger.info('Event deleted from calendar, re-syncing', { date: entry.date });
+                resynced++;
+                // Fall through to create the event again
               } else {
                 eventBus.publish(
                   createDomainEvent('EntrySkipped', {
                     date: entry.date,
-                    reason: 'already synced (from local state)',
+                    reason: 'already on calendar (verified)',
                   }),
                 );
                 skipped++;
@@ -156,7 +136,6 @@ export function createSyncService(deps: SyncServiceDeps) {
                   reason: 'already synced (from local state)',
                 }),
               );
-              logger.debug('Event already synced, skipping', { date: entry.date });
               skipped++;
               continue;
             }

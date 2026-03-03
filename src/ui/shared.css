@@ -271,32 +271,6 @@ button.secondary:disabled {
   cursor: not-allowed;
 }
 
-/* ===== Reconcile link-button ===== */
-.reconcile-link {
-  display: block;
-  width: auto;
-  margin: 6px auto 0;
-  padding: 4px 8px;
-  background: none;
-  border: none;
-  color: #555;
-  font-size: 12px;
-  font-weight: 400;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.reconcile-link:hover {
-  color: #1565c0;
-}
-
-.reconcile-link:disabled {
-  color: #90a4ae;
-  cursor: not-allowed;
-  text-decoration: none;
-}
-
 /* ===== Log area (behind toggle) ===== */
 .log-toggle {
   display: flex;

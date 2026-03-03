@@ -110,11 +110,16 @@ describe('SyncService', () => {
     expect(savedResult.errors).toHaveLength(0);
   });
 
-  it('skips already-synced dates from sync state', async () => {
+  it('skips already-synced dates that still exist on calendar', async () => {
     const entries = [makeEntry({ date: '2025-03-15' }), makeEntry({ date: '2025-03-16' })];
     const timeOffSource = createMockTimeOffSource(entries);
-    const calendarTarget = createMockCalendarTarget();
-    const syncStateStore = createMockSyncStateStore(new Set(['2025-03-15']));
+    const calendarTarget = createMockCalendarTarget({
+      // First call: reconciliation check for 2025-03-15 (exists), second call: new entry check for 2025-03-16 (doesn't exist)
+      eventExists: vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false),
+    });
+    const syncStateStore = createMockSyncStateStore(new Set(['2025-03-15']), {
+      '2025-03-15': 'event-id-123',
+    });
 
     const service = createSyncService({
       timeOffSource,
@@ -126,7 +131,9 @@ describe('SyncService', () => {
 
     await service.sync();
 
-    // Only the second entry should be created
+    // Should verify with calendar for the synced entry
+    expect(calendarTarget.eventExists).toHaveBeenCalled();
+    // Only the second entry should be created (first verified on calendar)
     expect(calendarTarget.createEvent).toHaveBeenCalledTimes(1);
 
     const savedResult = (syncStateStore.saveLastSyncResult as ReturnType<typeof vi.fn>).mock
@@ -367,11 +374,15 @@ describe('SyncService', () => {
     }
   });
 
-  it('publishes EntrySkipped for already-synced dates', async () => {
+  it('publishes EntrySkipped for already-synced dates verified on calendar', async () => {
     const entries = [makeEntry({ date: '2025-03-15' })];
     const timeOffSource = createMockTimeOffSource(entries);
-    const calendarTarget = createMockCalendarTarget();
-    const syncStateStore = createMockSyncStateStore(new Set(['2025-03-15']));
+    const calendarTarget = createMockCalendarTarget({
+      eventExists: vi.fn(async () => true),
+    });
+    const syncStateStore = createMockSyncStateStore(new Set(['2025-03-15']), {
+      '2025-03-15': 'event-id-123',
+    });
 
     const service = createSyncService({
       timeOffSource,
@@ -391,7 +402,7 @@ describe('SyncService', () => {
     expect(skippedEvent).toBeDefined();
     if (skippedEvent?.type === 'EntrySkipped') {
       expect(skippedEvent.date).toBe('2025-03-15');
-      expect(skippedEvent.reason).toContain('already synced');
+      expect(skippedEvent.reason).toContain('verified');
     }
   });
 
@@ -645,38 +656,10 @@ describe('SyncService', () => {
     expect(calendarTarget.createEvent).toHaveBeenCalledTimes(2);
   });
 
-  // --- Reconciliation tests ---
+  // --- Reconciliation tests (always-on) ---
 
-  describe('reconcileWithCalendar', () => {
-    it('skips calendar verification when reconcileWithCalendar is false (default)', async () => {
-      const entries = [makeEntry({ date: '2025-03-15' })];
-      const timeOffSource = createMockTimeOffSource(entries);
-      const calendarTarget = createMockCalendarTarget();
-      const syncStateStore = createMockSyncStateStore(new Set(['2025-03-15']), {
-        '2025-03-15': 'event-id-123',
-      });
-
-      const service = createSyncService({
-        timeOffSource,
-        calendarTarget,
-        syncStateStore,
-        logger,
-        eventBus,
-      });
-
-      await service.sync();
-
-      // Should not check calendar — trusts local state
-      expect(calendarTarget.eventExists).not.toHaveBeenCalled();
-      expect(calendarTarget.createEvent).not.toHaveBeenCalled();
-
-      const savedResult = (syncStateStore.saveLastSyncResult as ReturnType<typeof vi.fn>).mock
-        .calls[0][0] as SyncResult;
-      expect(savedResult.entriesSkipped).toBe(1);
-      expect(savedResult.entriesResynced).toBe(0);
-    });
-
-    it('verifies events on calendar when reconcileWithCalendar is true and event still exists', async () => {
+  describe('calendar reconciliation', () => {
+    it('verifies events on calendar when entry is already synced and event still exists', async () => {
       const entries = [makeEntry({ date: '2025-03-15' })];
       const timeOffSource = createMockTimeOffSource(entries);
       const calendarTarget = createMockCalendarTarget({
@@ -692,7 +675,6 @@ describe('SyncService', () => {
         syncStateStore,
         logger,
         eventBus,
-        reconcileWithCalendar: true,
       });
 
       await service.sync();
@@ -732,7 +714,6 @@ describe('SyncService', () => {
         syncStateStore,
         logger,
         eventBus,
-        reconcileWithCalendar: true,
       });
 
       await service.sync();
@@ -758,7 +739,7 @@ describe('SyncService', () => {
       }
     });
 
-    it('skips reconciliation for entries marked as "existing" in local state', async () => {
+    it('skips calendar verification for entries marked as "existing" in local state', async () => {
       const entries = [makeEntry({ date: '2025-03-15' })];
       const timeOffSource = createMockTimeOffSource(entries);
       const calendarTarget = createMockCalendarTarget();
@@ -772,7 +753,6 @@ describe('SyncService', () => {
         syncStateStore,
         logger,
         eventBus,
-        reconcileWithCalendar: true,
       });
 
       await service.sync();
