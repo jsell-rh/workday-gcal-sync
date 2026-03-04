@@ -338,6 +338,25 @@ export function initSyncUI(elements: SyncUIElements) {
   let syncedEventsOpen = false;
   let completionDetailsOpen = false;
   let inPreviewMode = false;
+  let targetCalendarCount = 1;
+
+  function calendarLabel(): string {
+    if (targetCalendarCount > 1) {
+      return `across ${targetCalendarCount} calendars`;
+    }
+    return 'on your calendar';
+  }
+
+  async function loadCalendarCount() {
+    try {
+      const response = await browser.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      if (response?.success && response.settings?.calendarIds) {
+        targetCalendarCount = response.settings.calendarIds.length;
+      }
+    } catch {
+      // Default to 1
+    }
+  }
 
   // Track collapsed state for month groups
   const collapsedMonths = new Map<string, boolean>();
@@ -460,7 +479,7 @@ export function initSyncUI(elements: SyncUIElements) {
     statusHeadline.textContent = `Last synced ${syncedAt}`;
 
     // Build detail line with event count
-    const eventCountText = `${totalEvents} event${totalEvents === 1 ? '' : 's'} on your calendar`;
+    const eventCountText = `${totalEvents} event${totalEvents === 1 ? '' : 's'} ${calendarLabel()}`;
     statusDetail.textContent = eventCountText;
 
     if (hasErrors) {
@@ -481,7 +500,7 @@ export function initSyncUI(elements: SyncUIElements) {
     const newlyAdded = result.entriesSynced;
     const reAdded = result.entriesResynced ?? 0;
     if (newlyAdded > 0) {
-      parts.push(`Added ${newlyAdded} new event${newlyAdded === 1 ? '' : 's'} to your calendar.`);
+      parts.push(`Added ${newlyAdded} new event${newlyAdded === 1 ? '' : 's'} ${calendarLabel()}.`);
     }
     if (reAdded > 0) {
       parts.push(`Re-added ${reAdded} event${reAdded === 1 ? '' : 's'}.`);
@@ -722,6 +741,10 @@ export function initSyncUI(elements: SyncUIElements) {
       } = await browser.runtime.sendMessage({ type: 'GET_SETTINGS' });
 
       if (response.success && response.settings) {
+        // Update calendar count from the same settings response
+        if (response.settings.calendarIds) {
+          targetCalendarCount = response.settings.calendarIds.length;
+        }
         if (response.settings.autoSyncEnabled) {
           const mins = response.settings.autoSyncIntervalMinutes;
           let interval: string;
@@ -1229,6 +1252,7 @@ export function initSyncUI(elements: SyncUIElements) {
   // --- Init ---
   async function initStatus() {
     try {
+      await loadCalendarCount();
       const response: SyncStatusResponse = await browser.runtime.sendMessage({
         type: 'GET_SYNC_STATUS',
       });

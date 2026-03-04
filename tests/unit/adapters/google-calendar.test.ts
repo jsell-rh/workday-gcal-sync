@@ -139,6 +139,87 @@ describe('GoogleCalendarAdapter', () => {
     });
   });
 
+  describe('OOO fallback on secondary calendars', () => {
+    const oooEvent: CalendarEvent = {
+      summary: 'OOO - Vacation',
+      description: 'Auto-synced from Workday. 8 hours.',
+      startDate: '2025-03-15',
+      endDate: '2025-03-16',
+      isAllDay: false,
+      visibility: 'outOfOffice',
+    };
+
+    it('retries with a fallback busy event when OOO is not supported', async () => {
+      // First call fails with OOO-related error
+      mockFetch.mockResolvedValueOnce(
+        mockJsonResponse({ error: { message: 'Invalid eventType: outOfOffice' } }, 400),
+      );
+      // Retry succeeds
+      mockFetch.mockResolvedValueOnce(mockJsonResponse({ id: 'fallback-event-id' }));
+
+      const adapter = createGoogleCalendarAdapter(mockGetAuthToken, {
+        calendarId: 'secondary@group.calendar.google.com',
+      });
+      const id = await adapter.createEvent(oooEvent);
+
+      expect(id).toBe('fallback-event-id');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      // Verify the fallback body
+      const [, retryOptions] = mockFetch.mock.calls[1];
+      const fallbackBody = JSON.parse(retryOptions.body);
+      expect(fallbackBody.summary).toBe('OOO - Vacation');
+      expect(fallbackBody.start.date).toBe('2025-03-15');
+      expect(fallbackBody.start.dateTime).toBeUndefined();
+      expect(fallbackBody.end.date).toBe('2025-03-16');
+      expect(fallbackBody.end.dateTime).toBeUndefined();
+      expect(fallbackBody.transparency).toBe('opaque');
+      expect(fallbackBody.eventType).toBeUndefined();
+      expect(fallbackBody.outOfOfficeProperties).toBeUndefined();
+      expect(fallbackBody.extendedProperties).toEqual({
+        private: {
+          ptoSyncManaged: 'true',
+          ptoSyncDate: '2025-03-15',
+        },
+      });
+    });
+
+    it('throws normally when error is not OOO-related', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockJsonResponse({ error: { message: 'Quota exceeded' } }, 429),
+      );
+
+      const adapter = createGoogleCalendarAdapter(mockGetAuthToken, {
+        calendarId: 'secondary@group.calendar.google.com',
+      });
+
+      await expect(adapter.createEvent(oooEvent)).rejects.toThrow(
+        'Google Calendar API error (429)',
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry when event is not OOO', async () => {
+      const busyEvent: CalendarEvent = {
+        summary: 'PTO - Vacation',
+        description: 'Auto-synced from Workday. 8 hours.',
+        startDate: '2025-03-15',
+        endDate: '2025-03-16',
+        isAllDay: true,
+        visibility: 'busy',
+      };
+
+      mockFetch.mockResolvedValueOnce(mockJsonResponse({ error: { message: 'Some error' } }, 400));
+
+      const adapter = createGoogleCalendarAdapter(mockGetAuthToken);
+
+      await expect(adapter.createEvent(busyEvent)).rejects.toThrow(
+        'Google Calendar API error (400)',
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('custom calendarId', () => {
     it('uses custom calendar ID in API URLs', async () => {
       mockFetch.mockResolvedValueOnce(mockJsonResponse({ id: 'created-event-id' }));

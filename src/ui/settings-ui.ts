@@ -16,6 +16,7 @@ export interface SettingsUIElements {
   autoSyncIntervalGroup: HTMLElement;
   saveBtn: HTMLButtonElement;
   settingsStatus: HTMLElement;
+  oooCalendarHint: HTMLElement;
 }
 
 export function initSettingsUI(elements: SettingsUIElements) {
@@ -33,6 +34,7 @@ export function initSettingsUI(elements: SettingsUIElements) {
     autoSyncIntervalGroup,
     saveBtn,
     settingsStatus,
+    oooCalendarHint,
   } = elements;
 
   let isOpen = false;
@@ -92,6 +94,24 @@ export function initSettingsUI(elements: SettingsUIElements) {
   titleTemplateInput.addEventListener('blur', validateTitleTemplate);
   workdayUrlInput.addEventListener('blur', validateWorkdayUrl);
 
+  // --- Out of Office calendar hint ---
+  function updateOooHint() {
+    const isOoo = visibilitySelect.value === 'outOfOffice';
+    const checkedCount = calendarCheckboxes.querySelectorAll<HTMLInputElement>(
+      'input[type="checkbox"]:checked',
+    ).length;
+    const shouldShow = isOoo && checkedCount > 1;
+    oooCalendarHint.classList.toggle('hidden', !shouldShow);
+  }
+
+  visibilitySelect.addEventListener('change', () => {
+    updateOooHint();
+  });
+
+  calendarCheckboxes.addEventListener('change', () => {
+    updateOooHint();
+  });
+
   // --- Auto-sync toggle ---
   autoSyncCheckbox.addEventListener('change', () => {
     autoSyncIntervalGroup.classList.toggle('hidden', !autoSyncCheckbox.checked);
@@ -135,6 +155,7 @@ export function initSettingsUI(elements: SettingsUIElements) {
         }
 
         updateTitlePreview();
+        updateOooHint();
       }
     } catch {
       // Background may not be ready
@@ -191,6 +212,7 @@ export function initSettingsUI(elements: SettingsUIElements) {
         if (settingsResponse.success && settingsResponse.settings) {
           applyCalendarSelections(settingsResponse.settings.calendarIds);
         }
+        updateOooHint();
       } else {
         showCalendarFallback(response.error);
       }

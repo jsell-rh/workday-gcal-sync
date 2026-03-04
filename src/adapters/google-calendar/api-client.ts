@@ -64,6 +64,38 @@ function buildEventBody(event: CalendarEvent): Record<string, unknown> {
   return body;
 }
 
+/**
+ * Detects whether a Google Calendar API error indicates that OOO events
+ * are not supported on this calendar (e.g. secondary/shared calendars).
+ */
+function isOOONotSupportedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /out.of.office|outOfOffice|eventType/i.test(message);
+}
+
+/**
+ * Builds a fallback event body for calendars that don't support OOO events.
+ * Creates a regular all-day event marked as "busy" with the same title.
+ */
+function buildFallbackEventBody(event: CalendarEvent): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    summary: event.summary,
+    description: event.description,
+    start: { date: event.startDate },
+    end: { date: event.endDate },
+    transparency: 'opaque', // busy
+  };
+
+  body.extendedProperties = {
+    private: {
+      ptoSyncManaged: 'true',
+      ptoSyncDate: event.startDate,
+    },
+  };
+
+  return body;
+}
+
 export function createGoogleCalendarAdapter(
   getAuthToken: () => Promise<string>,
   config: GoogleCalendarConfig = {},
@@ -119,16 +151,33 @@ export function createGoogleCalendarAdapter(
     async createEvent(event: CalendarEvent): Promise<string> {
       const body = buildEventBody(event);
 
-      const response = await authenticatedFetch(
-        `${CALENDAR_API_BASE}/calendars/${calendarId}/events`,
-        {
-          method: 'POST',
-          body: JSON.stringify(body),
-        },
-      );
-
-      const data = await response.json();
-      return data.id;
+      try {
+        const response = await authenticatedFetch(
+          `${CALENDAR_API_BASE}/calendars/${calendarId}/events`,
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+          },
+        );
+        const data = await response.json();
+        return data.id;
+      } catch (error) {
+        // OOO events can only be created on the primary calendar.
+        // Fall back to a "busy" event on secondary calendars.
+        if (event.visibility === 'outOfOffice' && isOOONotSupportedError(error)) {
+          const fallbackBody = buildFallbackEventBody(event);
+          const response = await authenticatedFetch(
+            `${CALENDAR_API_BASE}/calendars/${calendarId}/events`,
+            {
+              method: 'POST',
+              body: JSON.stringify(fallbackBody),
+            },
+          );
+          const data = await response.json();
+          return data.id;
+        }
+        throw error;
+      }
     },
 
     async eventExists(date: string, _summary: string): Promise<boolean> {

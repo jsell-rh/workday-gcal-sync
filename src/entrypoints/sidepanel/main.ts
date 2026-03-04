@@ -60,6 +60,7 @@ function startApp() {
     autoSyncIntervalGroup: document.getElementById('auto-sync-interval-group')!,
     saveBtn: document.getElementById('save-settings') as HTMLButtonElement,
     settingsStatus: document.getElementById('settings-status')!,
+    oooCalendarHint: document.getElementById('ooo-calendar-hint')!,
   });
 }
 

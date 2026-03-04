@@ -1090,6 +1090,18 @@ button:focus-visible {
   padding: 6px 8px;
 }
 
+.ooo-hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+  padding: 10px 12px;
+  background: #f7f7f7;
+  border-left: 3px solid #0066cc;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #333;
+  line-height: 1.5;
+}
+
 .form-hint code {
   background: #f0f0f0;
   padding: 1px 4px;

@@ -1018,14 +1018,30 @@ export default defineBackground(() => {
           sendResponse({ success: false, error: 'No settings provided' });
           return false;
         }
-        settingsStore
-          .saveSettings(message.settings)
-          .then(() => {
+        (async () => {
+          try {
+            // Check if calendar list changed — if so, clear synced state
+            // so the next sync creates events on any newly-added calendars.
+            // eventExists prevents duplicates on calendars that already have them.
+            const oldSettings = await settingsStore.getSettings();
+            const oldCals = (oldSettings.calendarIds ?? []).sort().join(',');
+            const newCals = (message.settings!.calendarIds ?? []).sort().join(',');
+
+            await settingsStore.saveSettings(message.settings!);
+
+            if (oldCals !== newCals) {
+              console.log('[PTO Sync] Calendar list changed, clearing sync state for re-sync');
+              await browser.storage.local.remove('pto-sync:synced-dates');
+            }
+
             // Update auto-sync alarm when settings change
             setupAutoSyncAlarm();
             sendResponse({ success: true });
-          })
-          .catch((err: Error) => sendResponse({ success: false, error: err.message }));
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            sendResponse({ success: false, error: errMsg });
+          }
+        })();
         return true;
       }
 
