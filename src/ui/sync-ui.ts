@@ -479,7 +479,7 @@ export function initSyncUI(elements: SyncUIElements) {
     statusHeadline.textContent = `Last synced ${syncedAt}`;
 
     // Build detail line with event count
-    const eventCountText = `${totalEvents} event${totalEvents === 1 ? '' : 's'} ${calendarLabel()}`;
+    const eventCountText = `${totalEvents} event${totalEvents === 1 ? '' : 's'} on your calendar`;
     statusDetail.textContent = eventCountText;
 
     if (hasErrors) {

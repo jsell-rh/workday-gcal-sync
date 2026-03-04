@@ -37,17 +37,47 @@ describe('MultiCalendarTarget', () => {
     expect(target2.createEvent).toHaveBeenCalledWith(testEvent);
   });
 
-  it('checks eventExists on first target only', async () => {
+  it('skips creation on calendars where event already exists', async () => {
+    const target1 = createMockTarget('id-1');
+    const target2 = createMockTarget('id-2');
+    // target1 already has the event
+    (target1.eventExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    target1.findEventByDate = vi.fn(async () => 'existing-id-1');
+    const multi = createMultiCalendarTarget([target1, target2]);
+
+    const id = await multi.createEvent(testEvent);
+
+    expect(id).toBe('existing-id-1|id-2');
+    expect(target1.createEvent).not.toHaveBeenCalled();
+    expect(target2.createEvent).toHaveBeenCalledWith(testEvent);
+  });
+
+  it('checks eventExists on all targets — returns true only if all have it', async () => {
     const target1 = createMockTarget();
     const target2 = createMockTarget();
     (target1.eventExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (target2.eventExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
     const multi = createMultiCalendarTarget([target1, target2]);
 
     const exists = await multi.eventExists('2025-03-15', 'PTO');
 
     expect(exists).toBe(true);
     expect(target1.eventExists).toHaveBeenCalledWith('2025-03-15', 'PTO');
-    expect(target2.eventExists).not.toHaveBeenCalled();
+    expect(target2.eventExists).toHaveBeenCalledWith('2025-03-15', 'PTO');
+  });
+
+  it('checks eventExists on all targets — returns false if any is missing', async () => {
+    const target1 = createMockTarget();
+    const target2 = createMockTarget();
+    (target1.eventExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (target2.eventExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    const multi = createMultiCalendarTarget([target1, target2]);
+
+    const exists = await multi.eventExists('2025-03-15', 'PTO');
+
+    expect(exists).toBe(false);
+    expect(target1.eventExists).toHaveBeenCalledWith('2025-03-15', 'PTO');
+    expect(target2.eventExists).toHaveBeenCalledWith('2025-03-15', 'PTO');
   });
 
   it('deletes events from all targets using composite ID', async () => {

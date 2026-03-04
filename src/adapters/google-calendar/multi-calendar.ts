@@ -17,15 +17,29 @@ export function createMultiCalendarTarget(targets: CalendarTarget[]): CalendarTa
     async createEvent(event: CalendarEvent): Promise<string> {
       const ids: string[] = [];
       for (const target of targets) {
-        const id = await target.createEvent(event);
-        ids.push(id);
+        // Check if event already exists on this specific calendar
+        const exists = await target.eventExists(event.startDate, event.summary);
+        if (exists) {
+          // Find the existing event ID for the composite ID
+          const existingId = target.findEventByDate
+            ? await target.findEventByDate(event.startDate)
+            : null;
+          ids.push(existingId ?? 'existing');
+        } else {
+          const id = await target.createEvent(event);
+          ids.push(id);
+        }
       }
       return ids.join('|');
     },
 
     async eventExists(date: string, summary: string): Promise<boolean> {
-      // Check first calendar only for dedup
-      return targets[0].eventExists(date, summary);
+      // Event is considered "existing" only if it exists on ALL calendars
+      for (const target of targets) {
+        const exists = await target.eventExists(date, summary);
+        if (!exists) return false;
+      }
+      return true;
     },
 
     async deleteEvent(compositeId: string): Promise<void> {
