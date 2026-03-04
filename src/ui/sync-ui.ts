@@ -1276,4 +1276,15 @@ export function initSyncUI(elements: SyncUIElements) {
   }
 
   initStatus();
+
+  // Listen for calendar list changes from settings
+  document.addEventListener('pto-sync:calendars-changed', () => {
+    loadCalendarCount();
+    // Update status to indicate a sync is needed
+    if (!statusSummary.classList.contains('hidden')) {
+      statusIcon.className = 'status-icon status-icon-warning';
+      statusIcon.textContent = '!';
+      statusDetail.textContent = 'New calendar added. Sync to update.';
+    }
+  });
 }

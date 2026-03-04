@@ -1029,14 +1029,15 @@ export default defineBackground(() => {
 
             await settingsStore.saveSettings(message.settings!);
 
-            if (oldCals !== newCals) {
+            const calendarsChanged = oldCals !== newCals;
+            if (calendarsChanged) {
               console.log('[PTO Sync] Calendar list changed, clearing sync state for re-sync');
               await browser.storage.local.remove('pto-sync:synced-dates');
             }
 
             // Update auto-sync alarm when settings change
             setupAutoSyncAlarm();
-            sendResponse({ success: true });
+            sendResponse({ success: true, calendarsChanged });
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             sendResponse({ success: false, error: errMsg });

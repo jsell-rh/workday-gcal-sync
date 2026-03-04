@@ -277,14 +277,19 @@ export function initSettingsUI(elements: SettingsUIElements) {
     saveBtn.textContent = 'Saving...';
 
     try {
-      const response: { success: boolean; error?: string } = await browser.runtime.sendMessage({
-        type: 'SAVE_SETTINGS',
-        settings,
-      });
+      const response: { success: boolean; error?: string; calendarsChanged?: boolean } =
+        await browser.runtime.sendMessage({
+          type: 'SAVE_SETTINGS',
+          settings,
+        });
 
       if (response.success) {
         settingsStatus.textContent = 'Settings saved!';
         settingsStatus.className = 'settings-status success';
+
+        if (response.calendarsChanged) {
+          document.dispatchEvent(new CustomEvent('pto-sync:calendars-changed'));
+        }
       } else {
         settingsStatus.textContent = `Error: ${response.error}`;
         settingsStatus.className = 'settings-status error';
